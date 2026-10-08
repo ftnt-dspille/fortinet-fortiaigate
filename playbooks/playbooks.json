@@ -349,16 +349,6 @@
               "name": "KeyValid -> RotateKey",
               "targetStep": "/api/3/workflow_steps/bbafcc5a-1732-5170-ab3f-ff9a15574f62",
               "sourceStep": "/api/3/workflow_steps/59d491ff-451f-5c65-ad4a-f63b2b58afba",
-              "label": null,
-              "isExecuted": false,
-              "group": null,
-              "uuid": "de2de796-883b-5269-bacb-7df2d123f66a"
-            },
-            {
-              "@type": "WorkflowRoute",
-              "name": "KeyValid -> RotateKey",
-              "targetStep": "/api/3/workflow_steps/bbafcc5a-1732-5170-ab3f-ff9a15574f62",
-              "sourceStep": "/api/3/workflow_steps/59d491ff-451f-5c65-ad4a-f63b2b58afba",
               "label": "Invalid - rotate",
               "isExecuted": false,
               "group": null,
@@ -413,16 +403,6 @@
               "isExecuted": false,
               "group": null,
               "uuid": "cd7ff61c-ac54-518d-a68f-6f70de83b1ec"
-            },
-            {
-              "@type": "WorkflowRoute",
-              "name": "NewKeyValid -> Done",
-              "targetStep": "/api/3/workflow_steps/b6f2fe9c-eaf0-5e24-bc3f-19f3a1ea728a",
-              "sourceStep": "/api/3/workflow_steps/922b56ae-6105-5151-b2be-04b8239bd479",
-              "label": null,
-              "isExecuted": false,
-              "group": null,
-              "uuid": "70ccc0bb-4e61-5c27-a27e-26cbc65f9152"
             },
             {
               "@type": "WorkflowRoute",
