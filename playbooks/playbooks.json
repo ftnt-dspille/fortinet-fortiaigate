@@ -1,0 +1,572 @@
+{
+  "type": "workflow_collections",
+  "macros": [],
+  "exported_tags": [
+    "fortinet-fortiaigate",
+    "Fortinet"
+  ],
+  "data": [
+    {
+      "@type": "WorkflowCollection",
+      "name": "Sample - Fortinet FortiAIGate - 1.2.0",
+      "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
+      "visible": true,
+      "image": null,
+      "uuid": "ecc80494-f216-54a2-a5bc-b6baaf0b8dea",
+      "recordTags": [
+        "fortinet-fortiaigate",
+        "Fortinet"
+      ],
+      "workflows": [
+        {
+          "@type": "Workflow",
+          "name": "Heal Expired FortiAIGate Key in Vault",
+          "aliasName": null,
+          "tag": "",
+          "recordTags": [],
+          "description": "Rotation flow for FortiAIGate virtual keys: reads the current api_key from a HashiCorp Vault KV v2 secret, derives the gateway key id from the key itself (a virtual key embeds its record id), and validates the key against the data plane. If the key is expired, revoked or suspended (the models endpoint rejects it), the key is ROTATED on FortiAIGate (old secret invalidated, new secret issued for the same key id), the new secret is written to Vault as a new KV version - all other fields of the secret are preserved - and the new key is verified end-to-end. If the key is already valid, nothing happens.",
+          "isActive": true,
+          "debug": false,
+          "singleRecordExecution": false,
+          "remoteExecutableFlag": 0,
+          "parameters": [
+            "secret_path"
+          ],
+          "synchronous": false,
+          "lastModifyDate": 1791409292,
+          "collection": "/api/3/workflow_collections/ecc80494-f216-54a2-a5bc-b6baaf0b8dea",
+          "versions": [],
+          "triggerStep": "/api/3/workflow_steps/8891ecf1-32a7-510a-9fa1-c12d5c707736",
+          "steps": [
+            {
+              "@type": "WorkflowStep",
+              "name": "Start",
+              "description": null,
+              "arguments": {
+                "step_variables": {
+                  "input": {
+                    "params": []
+                  }
+                }
+              },
+              "status": null,
+              "top": "120",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/b348f017-9a94-471f-87f8-ce88b6a7ad62",
+              "group": null,
+              "uuid": "8891ecf1-32a7-510a-9fa1-c12d5c707736"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "ResolvePath",
+              "description": null,
+              "arguments": {
+                "secret_path": "{{ vars.input.params.secret_path | default('lab/ai') }}"
+              },
+              "status": null,
+              "top": "250",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "4156ddff-53be-512f-8c01-a252ffee86e9"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "ReadCurrentSecret",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "read_secret",
+                "config": "",
+                "params": {
+                  "path": "{{ vars.secret_path }}"
+                },
+                "version": "1.0.0",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Read Secret",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "380",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "2e6f9399-3402-5bdc-959a-beb0100647e5"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "CheckCurrentKey",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "check_key",
+                "config": "",
+                "params": {
+                  "api_key": "{{ vars.steps.ReadCurrentSecret.data.data.api_key }}"
+                },
+                "version": "1.2.0",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Check API Key",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "510",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "27caa8b0-f61f-5fc5-866c-85e661baf1aa"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "KeyValid",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Invalid - rotate",
+                    "condition": "{{ vars.steps.CheckCurrentKey.data.valid | default(true) != true }}",
+                    "step_iri": "/api/3/workflow_steps/bbafcc5a-1732-5170-ab3f-ff9a15574f62",
+                    "step_name": "RotateKey"
+                  },
+                  {
+                    "option": "Valid - nothing to do",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/60e0ac37-72c4-54c7-a97f-5845512f55d4",
+                    "step_name": "AlreadyHealthy"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "640",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "59d491ff-451f-5c65-ad4a-f63b2b58afba"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "RotateKey",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "rotate_virtual_key",
+                "config": "",
+                "params": {
+                  "key_id": "",
+                  "api_key": "{{ vars.steps.ReadCurrentSecret.data.data.api_key }}"
+                },
+                "version": "1.2.0",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Rotate Virtual Key",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "770",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "bbafcc5a-1732-5170-ab3f-ff9a15574f62"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "BuildPayload",
+              "description": null,
+              "arguments": {
+                "payload": "{\"api_key\": \"{{ vars.steps.RotateKey.data.new_secret }}\", \"base_url\": \"{{ vars.steps.ReadCurrentSecret.data.data.base_url }}\", \"model\": \"{{ vars.steps.ReadCurrentSecret.data.data.model }}\"}"
+              },
+              "status": null,
+              "top": "900",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "269160ab-844c-53dc-8835-1e186af21ef1"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "WriteSecret",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "write_secret",
+                "config": "",
+                "params": {
+                  "path": "{{ vars.secret_path }}",
+                  "secret_data": "{{ vars.payload }}"
+                },
+                "version": "1.0.0",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Write Secret",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "1030",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "bebb0171-d2d7-52dd-8c42-3b2bbeb0c71d"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "VerifyNewKey",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "check_key",
+                "config": "",
+                "params": {
+                  "api_key": "{{ vars.steps.RotateKey.data.new_secret }}"
+                },
+                "version": "1.2.0",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Check API Key",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "1160",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "a26865ff-ab9b-5878-b5a0-57df77ec87d2"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "NewKeyValid",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "New key valid",
+                    "condition": "{{ vars.steps.VerifyNewKey.data.valid | default(false) }}",
+                    "step_iri": "/api/3/workflow_steps/b6f2fe9c-eaf0-5e24-bc3f-19f3a1ea728a",
+                    "step_name": "Done"
+                  },
+                  {
+                    "option": "New key invalid - run failed",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/b57cc047-32dd-5217-82ca-9d07030f7fa7",
+                    "step_name": "FailRotation"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "1290",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "922b56ae-6105-5151-b2be-04b8239bd479"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "AlreadyHealthy",
+              "description": null,
+              "arguments": {
+                "rotation_outcome": "no-op - stored key already valid"
+              },
+              "status": null,
+              "top": "770",
+              "left": "880",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "60e0ac37-72c4-54c7-a97f-5845512f55d4"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "FailRotation",
+              "description": null,
+              "arguments": {
+                "rotation_outcome": "failed - rotated key rejected by the data plane"
+              },
+              "status": null,
+              "top": "1420",
+              "left": "1220",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "b57cc047-32dd-5217-82ca-9d07030f7fa7"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "Done",
+              "description": null,
+              "arguments": {
+                "rotation_result": "{{ vars.rotation_outcome | default(\"rotated - new key stored in Vault and verified\") }}"
+              },
+              "status": null,
+              "top": "1420",
+              "left": "880",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "b6f2fe9c-eaf0-5e24-bc3f-19f3a1ea728a"
+            }
+          ],
+          "routes": [
+            {
+              "@type": "WorkflowRoute",
+              "name": "Start -> ResolvePath",
+              "targetStep": "/api/3/workflow_steps/4156ddff-53be-512f-8c01-a252ffee86e9",
+              "sourceStep": "/api/3/workflow_steps/8891ecf1-32a7-510a-9fa1-c12d5c707736",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "d6e6e473-d051-5969-b65a-7936b09b9cd1"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "ResolvePath -> ReadCurrentSecret",
+              "targetStep": "/api/3/workflow_steps/2e6f9399-3402-5bdc-959a-beb0100647e5",
+              "sourceStep": "/api/3/workflow_steps/4156ddff-53be-512f-8c01-a252ffee86e9",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "c60a698c-3b6f-5014-a5f2-4138012672a0"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "ReadCurrentSecret -> CheckCurrentKey",
+              "targetStep": "/api/3/workflow_steps/27caa8b0-f61f-5fc5-866c-85e661baf1aa",
+              "sourceStep": "/api/3/workflow_steps/2e6f9399-3402-5bdc-959a-beb0100647e5",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "99a700d1-205e-5404-ae2d-84333005b0e9"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "CheckCurrentKey -> KeyValid",
+              "targetStep": "/api/3/workflow_steps/59d491ff-451f-5c65-ad4a-f63b2b58afba",
+              "sourceStep": "/api/3/workflow_steps/27caa8b0-f61f-5fc5-866c-85e661baf1aa",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "1d0dd367-67ce-53e6-921d-890954c5a15b"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "KeyValid -> RotateKey",
+              "targetStep": "/api/3/workflow_steps/bbafcc5a-1732-5170-ab3f-ff9a15574f62",
+              "sourceStep": "/api/3/workflow_steps/59d491ff-451f-5c65-ad4a-f63b2b58afba",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "de2de796-883b-5269-bacb-7df2d123f66a"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "KeyValid -> RotateKey",
+              "targetStep": "/api/3/workflow_steps/bbafcc5a-1732-5170-ab3f-ff9a15574f62",
+              "sourceStep": "/api/3/workflow_steps/59d491ff-451f-5c65-ad4a-f63b2b58afba",
+              "label": "Invalid - rotate",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "7914b041-9b3d-559d-828e-529bad2d11c2"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "KeyValid -> AlreadyHealthy",
+              "targetStep": "/api/3/workflow_steps/60e0ac37-72c4-54c7-a97f-5845512f55d4",
+              "sourceStep": "/api/3/workflow_steps/59d491ff-451f-5c65-ad4a-f63b2b58afba",
+              "label": "Valid - nothing to do",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "3a6a5693-1e77-59f3-a928-9d12c8712470"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "RotateKey -> BuildPayload",
+              "targetStep": "/api/3/workflow_steps/269160ab-844c-53dc-8835-1e186af21ef1",
+              "sourceStep": "/api/3/workflow_steps/bbafcc5a-1732-5170-ab3f-ff9a15574f62",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "d67ea7bf-f67f-5b7b-86ce-2788054b07fa"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "BuildPayload -> WriteSecret",
+              "targetStep": "/api/3/workflow_steps/bebb0171-d2d7-52dd-8c42-3b2bbeb0c71d",
+              "sourceStep": "/api/3/workflow_steps/269160ab-844c-53dc-8835-1e186af21ef1",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "10e66574-cbc5-5b56-b289-7284c6f7e1aa"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "WriteSecret -> VerifyNewKey",
+              "targetStep": "/api/3/workflow_steps/a26865ff-ab9b-5878-b5a0-57df77ec87d2",
+              "sourceStep": "/api/3/workflow_steps/bebb0171-d2d7-52dd-8c42-3b2bbeb0c71d",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "31bb7fa8-d91b-56a4-8e0b-0e4341d77a91"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "VerifyNewKey -> NewKeyValid",
+              "targetStep": "/api/3/workflow_steps/922b56ae-6105-5151-b2be-04b8239bd479",
+              "sourceStep": "/api/3/workflow_steps/a26865ff-ab9b-5878-b5a0-57df77ec87d2",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "cd7ff61c-ac54-518d-a68f-6f70de83b1ec"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "NewKeyValid -> Done",
+              "targetStep": "/api/3/workflow_steps/b6f2fe9c-eaf0-5e24-bc3f-19f3a1ea728a",
+              "sourceStep": "/api/3/workflow_steps/922b56ae-6105-5151-b2be-04b8239bd479",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "70ccc0bb-4e61-5c27-a27e-26cbc65f9152"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "NewKeyValid -> Done",
+              "targetStep": "/api/3/workflow_steps/b6f2fe9c-eaf0-5e24-bc3f-19f3a1ea728a",
+              "sourceStep": "/api/3/workflow_steps/922b56ae-6105-5151-b2be-04b8239bd479",
+              "label": "New key valid",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "b9317673-021f-5e5b-9781-95aa17ecde59"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "NewKeyValid -> FailRotation",
+              "targetStep": "/api/3/workflow_steps/b57cc047-32dd-5217-82ca-9d07030f7fa7",
+              "sourceStep": "/api/3/workflow_steps/922b56ae-6105-5151-b2be-04b8239bd479",
+              "label": "New key invalid - run failed",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "3e0887a1-4fb6-5f8c-b54f-c4f97e3a411a"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "AlreadyHealthy -> Done",
+              "targetStep": "/api/3/workflow_steps/b6f2fe9c-eaf0-5e24-bc3f-19f3a1ea728a",
+              "sourceStep": "/api/3/workflow_steps/60e0ac37-72c4-54c7-a97f-5845512f55d4",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "3f82b75a-7dea-5eca-8efc-961514a14bf4"
+            }
+          ],
+          "groups": [
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: ResolvePath",
+              "description": "The Vault path of the secret holding the api_key; lab default lab/ai.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "250",
+              "left": "540",
+              "height": "94",
+              "width": "440",
+              "uuid": "89b1e964-8b16-5d87-bddd-842813ce2143",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: KeyValid",
+              "description": "Branch on the data-plane verdict for the stored key.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "640",
+              "left": "1220",
+              "height": "72",
+              "width": "440",
+              "uuid": "e2fa52d0-a02e-5252-a3f6-3717a21b130e",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: BuildPayload",
+              "description": "KV v2 writes create a new version and drop omitted fields, so the new secret data carries every original field with api_key replaced. Built as a JSON string because connector params are strings.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "900",
+              "left": "540",
+              "height": "138",
+              "width": "440",
+              "uuid": "801a299a-de8d-5878-9b2a-7ec55c40a626",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: NewKeyValid",
+              "description": "The rotated key must validate; anything else fails the run.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "1290",
+              "left": "1560",
+              "height": "94",
+              "width": "440",
+              "uuid": "41f29cef-844c-5995-9ecd-97ddc6e58ff5",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: FailRotation",
+              "description": "Reachable only when the rotated key does not validate.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "1420",
+              "left": "1560",
+              "height": "72",
+              "width": "440",
+              "uuid": "e7894f65-5c55-5870-b2d2-28019d7e53ab",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: Done",
+              "description": "Terminal summary.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "1512",
+              "left": "1560",
+              "height": "72",
+              "width": "440",
+              "uuid": "4c2fe7f2-598a-5cfc-9257-1b9179993c31",
+              "recordTags": []
+            }
+          ],
+          "priority": "/api/3/picklists/9e8d41e4-8ada-4a2c-bd02-07f62c6d0a00",
+          "playbookOrigin": null,
+          "isEditable": true,
+          "uuid": "b42fc3b2-f9e5-5bb7-85cf-d587bebe7fd7",
+          "owners": [],
+          "isPrivate": false
+        }
+      ]
+    }
+  ]
+}

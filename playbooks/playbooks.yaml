@@ -1,0 +1,153 @@
+# FortiAIGate connector sample playbooks.
+#
+# Build with `python playbooks/build.py`, never by hand (the compiled JSON
+# is stamped with the info.json version and frozen timestamps).
+#
+# Requires alongside this connector on the appliance:
+#   - hashicorp-vault-kv (write-capable KV v2 connector), default config
+#   - fortinet-fortiaigate in its default config
+
+collection: Sample - Fortinet FortiAIGate - 1.0.0
+description: >-
+  Sample playbooks for the "Fortinet FortiAIGate" connector. If you are
+  planning to use the sample playbooks in your environment, ensure that you
+  clone those playbooks and move them to a different collection, since the
+  sample playbook collection gets deleted during connector upgrade and
+  delete.
+visible: true
+tags:
+  - fortinet-fortiaigate
+  - Fortinet
+exported_tags:
+  - fortinet-fortiaigate
+  - Fortinet
+
+playbooks:
+
+  - name: Heal Expired FortiAIGate Key in Vault
+    description: >-
+      Rotation flow for FortiAIGate virtual keys: reads the current api_key
+      from a HashiCorp Vault KV v2 secret, derives the gateway key id from
+      the key itself (a virtual key embeds its record id), and validates the
+      key against the data plane. If the key is expired, revoked or
+      suspended (the models endpoint rejects it), the key is ROTATED on
+      FortiAIGate (old secret invalidated, new secret issued for the same
+      key id), the new secret is written to Vault as a new KV version - all
+      other fields of the secret are preserved - and the new key is
+      verified end-to-end. If the key is already valid, nothing happens.
+    is_active: true
+    parameters: [secret_path]
+    steps:
+
+      - name: Start
+        type: start
+        next: ResolvePath
+
+      - name: ResolvePath
+        type: set_variable
+        next: ReadCurrentSecret
+        comment: The Vault path of the secret holding the api_key; lab default lab/ai.
+        vars:
+          secret_path: "{{ vars.input.params.secret_path | default('lab/ai') }}"
+
+      - name: ReadCurrentSecret
+        type: connector
+        next: CheckCurrentKey
+        connector: hashicorp-vault-kv
+        operation: read_secret
+        config: ''
+        params:
+          path: '{{ vars.secret_path }}'
+
+      - name: CheckCurrentKey
+        type: connector
+        next: KeyValid
+        connector: fortinet-fortiaigate
+        operation: check_key
+        config: ''
+        params:
+          api_key: '{{ vars.steps.ReadCurrentSecret.data.data.api_key }}'
+
+      - name: KeyValid
+        type: decision
+        next: RotateKey
+        comment: Branch on the data-plane verdict for the stored key.
+        conditions:
+          - display: Invalid - rotate
+            when: "{{ vars.steps.CheckCurrentKey.data.valid | default(true) != true }}"
+            next: RotateKey
+          - display: Valid - nothing to do
+            default: true
+            next: AlreadyHealthy
+
+      - name: RotateKey
+        type: connector
+        next: BuildPayload
+        connector: fortinet-fortiaigate
+        operation: rotate_virtual_key
+        config: ''
+        params:
+          key_id: ''
+          api_key: '{{ vars.steps.ReadCurrentSecret.data.data.api_key }}'
+
+      - name: BuildPayload
+        type: set_variable
+        next: WriteSecret
+        comment: >-
+          KV v2 writes create a new version and drop omitted fields, so the
+          new secret data carries every original field with api_key replaced.
+          Built as a JSON string because connector params are strings.
+        vars:
+          payload: >-
+            {"api_key": "{{ vars.steps.RotateKey.data.new_secret }}", "base_url":
+            "{{ vars.steps.ReadCurrentSecret.data.data.base_url }}", "model":
+            "{{ vars.steps.ReadCurrentSecret.data.data.model }}"}
+
+      - name: WriteSecret
+        type: connector
+        next: VerifyNewKey
+        connector: hashicorp-vault-kv
+        operation: write_secret
+        config: ''
+        params:
+          path: '{{ vars.secret_path }}'
+          secret_data: '{{ vars.payload }}'
+
+      - name: VerifyNewKey
+        type: connector
+        next: NewKeyValid
+        connector: fortinet-fortiaigate
+        operation: check_key
+        config: ''
+        params:
+          api_key: '{{ vars.steps.RotateKey.data.new_secret }}'
+
+      - name: NewKeyValid
+        type: decision
+        next: Done
+        comment: The rotated key must validate; anything else fails the run.
+        conditions:
+          - display: New key valid
+            when: '{{ vars.steps.VerifyNewKey.data.valid | default(false) }}'
+            next: Done
+          - display: New key invalid - run failed
+            default: true
+            next: FailRotation
+
+      - name: AlreadyHealthy
+        type: set_variable
+        next: Done
+        vars:
+          rotation_outcome: no-op - stored key already valid
+
+      - name: FailRotation
+        type: set_variable
+        comment: Reachable only when the rotated key does not validate.
+        vars:
+          rotation_outcome: failed - rotated key rejected by the data plane
+
+      - name: Done
+        type: set_variable
+        comment: Terminal summary.
+        vars:
+          rotation_result: '{{ vars.rotation_outcome | default("rotated - new key stored in Vault and verified") }}'

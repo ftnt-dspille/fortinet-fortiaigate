@@ -1,0 +1,851 @@
+{
+  "name": "fortinet-fortiaigate",
+  "label": "Fortinet FortiAIGate",
+  "version": "1.2.0",
+  "description": "Fortinet FortiAIGate is an inline AI gateway that brokers and guards access to large language model providers. This connector manages the gateway's virtual keys - the data-plane API keys that client applications present to the gateway's OpenAI-compatible endpoint. Operations cover listing and inspecting virtual keys, creating keys (the gateway returns the key secret exactly once), rotating a key in place (invalidating the old secret and issuing a new one), revoking keys, setting key expiry and rate limits, and validating a key against the data-plane models endpoint. Built for the FortiAIGate 8.x management API (session cookie plus per-mutation CSRF, admin console JSON API). Version 1.1 adds governed AI usage: chat completions through the data plane, guardrail testing, policy and provider visibility, workspace budgets and audit logs.",
+  "publisher": "Fortinet",
+  "category": "Analytics and SIEM",
+  "cs_compatible": true,
+  "cs_approved": false,
+  "icon_small_name": "fortiaigate_small.png",
+  "icon_large_name": "fortiaigate_large.png",
+  "configuration": {
+    "fields": [
+      {
+        "name": "server",
+        "title": "Server URL",
+        "type": "text",
+        "editable": true,
+        "visible": true,
+        "required": true,
+        "placeholder": "e.g. https://fortiaigate.example.com",
+        "description": "Base URL of the FortiAIGate management console. The connector logs in with the admin credentials below, then calls the JSON API under /api/v1.",
+        "isOnChange": false,
+        "onchange": {}
+      },
+      {
+        "name": "username",
+        "title": "Username",
+        "type": "text",
+        "editable": true,
+        "visible": true,
+        "required": true,
+        "description": "Username of a FortiAIGate organization administrator account. Key management lives under /api/v1/admin and requires an org admin.",
+        "isOnChange": false,
+        "onchange": {}
+      },
+      {
+        "name": "password",
+        "title": "Password",
+        "type": "password",
+        "editable": true,
+        "visible": true,
+        "required": true,
+        "description": "Password of the FortiAIGate organization administrator account.",
+        "isOnChange": false,
+        "onchange": {}
+      },
+      {
+        "name": "verify_ssl",
+        "title": "Verify SSL",
+        "type": "checkbox",
+        "editable": true,
+        "visible": true,
+        "required": false,
+        "value": true,
+        "description": "Specifies whether the SSL certificate of the FortiAIGate server is to be verified. The workshop/lab gateway serves a self-signed certificate, so leave this unchecked there.",
+        "isOnChange": false,
+        "onchange": {}
+      },
+      {
+        "name": "data_plane_base",
+        "title": "Data Plane Base URL",
+        "type": "text",
+        "editable": true,
+        "visible": true,
+        "required": false,
+        "placeholder": "e.g. https://fortiaigate.example.com",
+        "description": "Optional base URL used for validating API keys against the data plane. Defaults to the same origin as the management Server URL. Only set this when the data plane is published at a different address.",
+        "isOnChange": false,
+        "onchange": {}
+      },
+      {
+        "name": "timeout",
+        "title": "Request Timeout (seconds)",
+        "type": "text",
+        "editable": true,
+        "visible": true,
+        "required": false,
+        "value": "30",
+        "description": "Per-request timeout in seconds applied to every management and data-plane HTTP call.",
+        "isOnChange": false,
+        "onchange": {}
+      }
+    ]
+  },
+  "operations": [
+    {
+      "operation": "list_workspaces",
+      "title": "List Workspaces",
+      "description": "List the FortiAIGate workspaces visible to the configured organization administrator. Virtual keys are created inside a workspace, so use this to resolve a workspace_id for the Create Virtual Key operation.",
+      "enabled": true,
+      "annotation": "list_workspaces",
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "list_virtual_keys",
+      "title": "List Virtual Keys",
+      "description": "List the virtual keys on the FortiAIGate gateway. Optionally filter by workspace or status. Each record includes the key id, name, active status, expiry (expiresAt), usage (lastUsedAt, spend) and the secret preview - the secret itself is never returned by the management API.",
+      "enabled": true,
+      "annotation": "list_virtual_keys",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Workspace ID",
+          "type": "select",
+          "name": "workspace_id",
+          "tooltip": "(Optional) Only list virtual keys in this workspace.",
+          "description": "(Optional) Only list virtual keys in this workspace.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_workspace_options"
+        },
+        {
+          "title": "Status",
+          "type": "select",
+          "options": [
+            "active",
+            "revoked",
+            "suspended"
+          ],
+          "name": "status",
+          "description": "(Optional) Only list virtual keys with this status.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        }
+      ],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "get_virtual_key",
+      "title": "Get Virtual Key",
+      "description": "Retrieve a single virtual key record by its id.",
+      "enabled": true,
+      "annotation": "get_virtual_key",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Key ID",
+          "type": "select",
+          "name": "key_id",
+          "tooltip": "UUID of the virtual key, as returned by List Virtual Keys.",
+          "description": "UUID of the virtual key to retrieve.",
+          "required": true,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_virtual_key_options"
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "operation": "create_virtual_key",
+      "title": "Create Virtual Key",
+      "description": "Create a new virtual key in a workspace. FortiAIGate returns the key secret (secretKey) exactly once, in the response to this operation - it is never readable again, so store it immediately (for example in HashiCorp Vault).",
+      "enabled": true,
+      "annotation": "create_virtual_key",
+      "category": "containment",
+      "parameters": [
+        {
+          "title": "Workspace ID",
+          "type": "select",
+          "name": "workspace_id",
+          "description": "Workspace in which to create the key. Resolve with List Workspaces.",
+          "required": true,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_workspace_options"
+        },
+        {
+          "title": "Key Name",
+          "type": "text",
+          "name": "key_name",
+          "description": "Display name of the new virtual key.",
+          "required": true,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "Expires At",
+          "type": "text",
+          "name": "expires_at",
+          "placeholder": "e.g. 2026-12-31T00:00:00.000Z",
+          "description": "(Optional) Expiry timestamp in ISO 8601. Leave empty for a key that does not expire.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "TPM",
+          "type": "text",
+          "name": "tpm",
+          "placeholder": "e.g. 100000",
+          "description": "(Optional) Tokens-per-minute limit for the new key.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "RPM",
+          "type": "text",
+          "name": "rpm",
+          "placeholder": "e.g. 100",
+          "description": "(Optional) Requests-per-minute limit for the new key.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "secretKey": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "operation": "update_virtual_key",
+      "title": "Update Virtual Key",
+      "description": "Update the expiry or the TPM/RPM limits of a virtual key. The management API replaces the whole key configuration on update, so this operation first reads the current record and merges in only the fields you supply - everything else is preserved.",
+      "enabled": true,
+      "annotation": "update_virtual_key",
+      "category": "containment",
+      "parameters": [
+        {
+          "title": "Key ID",
+          "type": "select",
+          "name": "key_id",
+          "description": "UUID of the virtual key to update.",
+          "required": true,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_virtual_key_options"
+        },
+        {
+          "title": "Expires At",
+          "type": "text",
+          "name": "expires_at",
+          "placeholder": "e.g. 2027-01-01T00:00:00.000Z",
+          "description": "(Optional) New expiry timestamp in ISO 8601. Leave empty to keep the current value.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "TPM",
+          "type": "text",
+          "name": "tpm",
+          "placeholder": "e.g. 100000",
+          "description": "(Optional) New tokens-per-minute limit. Leave empty to keep the current value.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "RPM",
+          "type": "text",
+          "name": "rpm",
+          "placeholder": "e.g. 100",
+          "description": "(Optional) New requests-per-minute limit. Leave empty to keep the current value.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "Policy IDs",
+          "type": "multiselect",
+          "name": "policy_ids",
+          "placeholder": "e.g. policy-uuid-1,policy-uuid-2",
+          "description": "(Optional) Comma-separated policy ids to attach to the key. Replaces the current attached policy list; policies the organization forces onto the workspace always stay attached.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_policy_options"
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "operation": "rotate_virtual_key",
+      "title": "Rotate Virtual Key",
+      "description": "Rotate a virtual key in place: FortiAIGate invalidates the old secret and issues a new one for the same key id. Pass either the key UUID, or the key secret itself (api_key) - the connector derives the id from it, since a virtual key embeds its record id. If the response contains the new secret, it is returned both in the raw response body and as a top-level new_secret field - store it immediately (for example by writing it to HashiCorp Vault), as it is not readable again.",
+      "enabled": true,
+      "annotation": "rotate_virtual_key",
+      "category": "containment",
+      "parameters": [
+        {
+          "title": "Key ID",
+          "type": "select",
+          "name": "key_id",
+          "description": "(Optional) UUID of the virtual key to rotate. Leave empty when passing the key secret instead.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_virtual_key_options"
+        },
+        {
+          "title": "API Key",
+          "type": "password",
+          "name": "api_key",
+          "description": "(Optional) The virtual key secret itself; the connector derives the key id from it. Starts with 'faig_'.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "new_secret": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "operation": "revoke_virtual_key",
+      "title": "Revoke Virtual Key",
+      "description": "Revoke a virtual key. After revocation the key secret stops working on the data plane; the record remains visible with status 'revoked'.",
+      "enabled": true,
+      "annotation": "revoke_virtual_key",
+      "category": "containment",
+      "parameters": [
+        {
+          "title": "Key ID",
+          "type": "select",
+          "name": "key_id",
+          "description": "UUID of the virtual key to revoke.",
+          "required": true,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_virtual_key_options"
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "operation": "check_key",
+      "title": "Check API Key",
+      "description": "Validate a virtual key secret against the data plane by calling the OpenAI-compatible models endpoint with it. Returns valid=true with the model count on success (HTTP 200), or valid=false with the HTTP status for a rejected key (401/403 for expired, revoked or suspended keys). This is the preferred 'is this key expired?' detector in rotation playbooks.",
+      "enabled": true,
+      "annotation": "check_key",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "API Key",
+          "type": "password",
+          "name": "api_key",
+          "description": "The virtual key secret to validate (starts with 'faig_').",
+          "required": true,
+          "editable": true,
+          "visible": true
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "model_count": {
+            "type": "integer"
+          },
+          "http_status": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "operation": "chat_completion",
+      "title": "Chat Completion",
+      "description": "Run one OpenAI-compatible chat completion through the FortiAIGate data plane using a virtual key. Guardrails and policies attached to the key's workspace are enforced by the gateway, so playbook AI steps inherit its scanning and blocking. Returns the assistant message content, the model, finish reason and token usage.",
+      "enabled": true,
+      "annotation": "chat_completion",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "API Key",
+          "type": "password",
+          "name": "api_key",
+          "description": "The virtual key secret to authenticate with (starts with 'faig_').",
+          "required": true,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "Model",
+          "type": "select",
+          "name": "model",
+          "description": "Model to complete with, e.g. openai-gpt-4.1-mini. Use List Models on the data plane (Check API Key also returns the count) or the provider catalog naming.",
+          "required": true,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. openai-gpt-4.1-mini",
+          "apiOperation": "get_model_options"
+        },
+        {
+          "title": "Messages (JSON)",
+          "type": "text",
+          "name": "messages",
+          "description": "Chat messages as a JSON list, e.g. [{\"role\": \"user\", \"content\": \"Summarize this alert.\"}]",
+          "required": true,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "Max Tokens",
+          "type": "text",
+          "name": "max_tokens",
+          "description": "(Optional) Maximum completion tokens.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. 256"
+        },
+        {
+          "title": "Temperature",
+          "type": "text",
+          "name": "temperature",
+          "description": "(Optional) Sampling temperature, 0.0 to 2.0.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. 0.2"
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "finish_reason": {
+            "type": "string"
+          },
+          "usage": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "operation": "test_guardrail",
+      "title": "Test Guardrail",
+      "description": "Scan arbitrary text through the gateway's guardrail scanner. No provider or upstream model is involved: the operation answers 'would these detectors fire?'. Pass detector ids directly, or a guardrail id to reuse its detectors and character-deny setting. Use it to triage prompts and model outputs inside playbooks.",
+      "enabled": true,
+      "annotation": "test_guardrail",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Input Text",
+          "type": "textarea",
+          "name": "input_text",
+          "description": "The text to scan (a prompt, a model response, an email body).",
+          "required": true,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "Detector IDs",
+          "type": "multiselect",
+          "name": "detector_ids",
+          "description": "(Optional) Comma-separated detector ids to run.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. owasp-agentic-top-10,89d9563b-...",
+          "apiOperation": "get_detector_options"
+        },
+        {
+          "title": "Guardrail ID",
+          "type": "select",
+          "name": "guardrail_id",
+          "description": "(Optional) Test with this guardrail's detectors and deny-suspicious-characters setting.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. general-owasp-guardrail",
+          "apiOperation": "get_guardrail_options"
+        },
+        {
+          "title": "Deny Suspicious Characters",
+          "type": "checkbox",
+          "name": "deny_suspicious_characters",
+          "description": "(Optional) Deny Suspicious Characters",
+          "required": false,
+          "editable": true,
+          "visible": true
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "matched": {
+            "type": "boolean"
+          },
+          "finalDisposition": {
+            "type": "string"
+          },
+          "results": {
+            "type": "array"
+          }
+        }
+      }
+    },
+    {
+      "operation": "list_policies",
+      "title": "List Policies",
+      "description": "List the organization's AI policies with their guardrail assignments, provider access and status. With workspace_id, also includes that workspace's own policies.",
+      "enabled": true,
+      "annotation": "list_policies",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Workspace ID",
+          "type": "select",
+          "name": "workspace_id",
+          "description": "(Optional) Also list this workspace's own policies.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_workspace_options"
+        }
+      ],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "get_policy",
+      "title": "Get Policy",
+      "description": "Retrieve a single policy by id, including input and output guardrail ids, provider access and any pending change.",
+      "enabled": true,
+      "annotation": "get_policy",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Policy ID",
+          "type": "text",
+          "name": "policy_id",
+          "description": "UUID of the policy.",
+          "required": true,
+          "editable": true,
+          "visible": true
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "operation": "list_guardrails",
+      "title": "List Guardrails",
+      "description": "List the organization's guardrails (named detector sets) with their detector ids and the number of policies using each.",
+      "enabled": true,
+      "annotation": "list_guardrails",
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "get_guardrail",
+      "title": "Get Guardrail",
+      "description": "Retrieve a single guardrail by id, including its detector ids and deny-suspicious-characters setting.",
+      "enabled": true,
+      "annotation": "get_guardrail",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Guardrail ID",
+          "type": "text",
+          "name": "guardrail_id",
+          "description": "UUID of the guardrail.",
+          "required": true,
+          "editable": true,
+          "visible": true
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "operation": "list_ai_providers",
+      "title": "List AI Providers",
+      "description": "List the AI providers the gateway can reach, with their platform, base URL, model counts and configured key counts. Useful when keys fail because an upstream provider is down or out of keys.",
+      "enabled": true,
+      "annotation": "list_ai_providers",
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "get_workspace_budget",
+      "title": "Get Workspace Budget",
+      "description": "Get a workspace's spend against its budget and the budget cycle.",
+      "enabled": true,
+      "annotation": "get_workspace_budget",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Workspace ID",
+          "type": "select",
+          "name": "workspace_id",
+          "description": "UUID of the workspace. Resolve with List Workspaces.",
+          "required": true,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_workspace_options"
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "spend": {
+            "type": "number"
+          },
+          "budget": {
+            "type": "number"
+          },
+          "budgetCycle": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "operation": "list_audit_logs",
+      "title": "List Audit Logs",
+      "description": "List the gateway's administration audit events (logins, key and policy changes), newest first, paginated. Returns the items plus the total and whether more pages exist.",
+      "enabled": true,
+      "annotation": "list_audit_logs",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Offset",
+          "type": "text",
+          "name": "offset",
+          "description": "(Optional) Page offset, default 0.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. 0"
+        },
+        {
+          "title": "Limit",
+          "type": "text",
+          "name": "limit",
+          "description": "(Optional) Page size, default 25.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. 25"
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "hasNext": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "operation": "get_audit_log_filter_options",
+      "title": "Get Audit Log Filter Options",
+      "description": "The filter dimensions available for the audit log (users, workspaces, roles, actions), for building dashboards and picklists.",
+      "enabled": true,
+      "annotation": "get_audit_log_filter_options",
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "operation": "list_my_workspaces",
+      "title": "List My Workspaces",
+      "description": "List the workspaces the configured administrator account is a member of. Create Virtual Key requires the key owner to be a member of the target workspace, so use this to pick a workspace id for key creation.",
+      "enabled": true,
+      "annotation": "list_my_workspaces",
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "get_workspace_options",
+      "title": "Get Workspace Options",
+      "description": "Populates workspace dropdowns. Returns the workspaces the configured admin can act in (own memberships first, org-wide otherwise) as title/value pairs.",
+      "enabled": true,
+      "annotation": "get_workspace_options",
+      "visible": false,
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "get_virtual_key_options",
+      "title": "Get Virtual Key Options",
+      "description": "Populates virtual key dropdowns: key name and status, value is the key record id.",
+      "enabled": true,
+      "annotation": "get_virtual_key_options",
+      "visible": false,
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "get_policy_options",
+      "title": "Get Policy Options",
+      "description": "Populates policy dropdowns: policy name and status, value is the policy id.",
+      "enabled": true,
+      "annotation": "get_policy_options",
+      "visible": false,
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "get_guardrail_options",
+      "title": "Get Guardrail Options",
+      "description": "Populates guardrail dropdowns: guardrail name and status, value is the guardrail id.",
+      "enabled": true,
+      "annotation": "get_guardrail_options",
+      "visible": false,
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "get_detector_options",
+      "title": "Get Detector Options",
+      "description": "Populates detector dropdowns: built-in detectors (slug ids) then workspace detectors (uuids).",
+      "enabled": true,
+      "annotation": "get_detector_options",
+      "visible": false,
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "operation": "get_model_options",
+      "title": "Get Model Options",
+      "description": "Populates the chat completion model dropdown from the organization's model groups (public model names, i.e. the identifiers the completions endpoint accepts).",
+      "enabled": true,
+      "annotation": "get_model_options",
+      "visible": false,
+      "category": "investigation",
+      "parameters": [],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    }
+  ]
+}
