@@ -1,5 +1,11 @@
 # fortinet-fortiaigate release notes
 
+## 1.2.1
+
+- House style: single-dash conventions across prose, code banners, and the
+  bundled sample playbook; example env and docs scrubbed of lab specifics.
+  No functional changes.
+
 ## 1.2.0
 
 - Dynamic dropdowns (apiOperation) so step editors pick from live values
