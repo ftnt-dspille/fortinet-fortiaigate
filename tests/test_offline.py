@@ -468,9 +468,31 @@ def test_replace_revokes_a_suspended_key_after_its_replacement_exists(fake, conf
     assert 'expiresAt' not in fake.last_create_body or not fake.last_create_body['expiresAt']
 
 
-def test_replace_reports_what_it_could_not_copy(fake, config):
+def test_replace_refuses_when_model_limits_could_not_be_carried_over(fake, config):
+    from fortiaigate.connections import ConnectorError
     _expired_key(fake, modelGroups=[{'id': 'mg-1'}])
-    assert ops.replace_virtual_key(config, {'key_id': 'old-1'})['not_copied'] == ['modelGroups']
+    with pytest.raises(ConnectorError, match='could reach more than the'):
+        ops.replace_virtual_key(config, {'key_id': 'old-1'})
+    assert fake.last_create_body is None          # nothing was created
+    result = ops.replace_virtual_key(config, {'key_id': 'old-1', 'allow_uncopied': True})
+    assert result['not_copied'] == ['modelGroups']
+
+
+def test_replace_never_revives_a_revoked_key_unasked(fake, config):
+    from fortiaigate.connections import ConnectorError
+    _expired_key(fake, status='revoked')
+    with pytest.raises(ConnectorError, match='deliberate'):
+        ops.replace_virtual_key(config, {'key_id': 'old-1'})
+    assert fake.last_create_body is None
+    assert ops.replace_virtual_key(config, {'key_id': 'old-1', 'allow_revoked': True})['method'] == 'reissued'
+
+
+@pytest.mark.parametrize('secret', ['', 'nope', 'faig_short_x', 'other_9f8e7d6c5b4a39281706f1e2d3c4b5a6_x',
+                                    'faig_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_x'])
+def test_a_malformed_secret_is_not_turned_into_an_id(fake, config, secret):
+    from fortiaigate.connections import ConnectorError, key_id_from_secret
+    with pytest.raises(ConnectorError, match='not a FortiAIGate virtual key secret'):
+        key_id_from_secret(secret)
 
 
 def test_a_renewed_key_keeps_its_name_and_the_active_one_is_chosen(fake, config):

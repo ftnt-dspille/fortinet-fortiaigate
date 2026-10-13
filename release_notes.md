@@ -1,5 +1,15 @@
 # fortinet-fortiaigate release notes
 
+## 1.3.4
+
+- **Replace Virtual Key** now fails closed. A revoked key is shut off on purpose, so it is
+  not replaced unless **Allow Replacing a Revoked Key** is on. A key with model groups or
+  provider access is not replaced unless **Allow Replacement Without Model Access Limits**
+  is on, because those limits are not copied and the new key could reach more than the old
+  one; nothing is created in either case. The sample playbook leaves both off, so it stops
+  with a clear message for such keys.
+- A key secret that is not `faig_<32 hex>_...` is rejected instead of being turned into an id.
+
 ## 1.3.3
 
 - New operation **Replace Virtual Key**: FortiAIGate only rotates a key that is still

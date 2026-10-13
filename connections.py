@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import re
 from typing import Any, Optional
 from urllib.parse import unquote, urlparse
 
@@ -37,7 +38,11 @@ def key_id_from_secret(api_key: str) -> str:
     The id is recovered from the secret by re-inserting the UUID dashes,
     so callers that hold the secret do not need to look the record up.
     """
-    bare = api_key.split('_')[1]
+    parts = str(api_key).split('_')
+    bare = parts[1] if len(parts) > 1 and parts[0] == 'faig' else ''
+    if not re.fullmatch(r'[0-9a-fA-F]{32}', bare):
+        raise ConnectorError('That is not a FortiAIGate virtual key secret (expected faig_<32 hex>_...); '
+                             'pass the key id instead')
     return '-'.join((bare[:8], bare[8:12], bare[12:16], bare[16:20], bare[20:]))
 
 

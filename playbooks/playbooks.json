@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.3.3",
+      "name": "Sample - Fortinet FortiAIGate - 1.3.4",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -24,7 +24,7 @@
           "aliasName": null,
           "tag": "",
           "recordTags": [],
-          "description": "Keeps an application's FortiAIGate virtual key working. Reads the key from a HashiCorp Vault KV v2 secret and tests it against the data plane. If it no longer works (expired, revoked or suspended), the playbook issues a replacement - FortiAIGate cannot rotate a key in that state, so it creates a new key in the same workspace with the same name, limits and policies - writes the new secret into the same Vault path as a new version, and checks that the new key works. Every other field of the secret is kept. A key that still works is left alone.\nInputs: secret_path (the KV v2 path, for example lab/ai) and, when the key is not stored under api_key, key_field. Outputs: rotation_result (a one-line outcome), rotated (true or false), new_key_id and key_method (reissued or rotated). Run it from a schedule, or call it as a child playbook once per secret.",
+          "description": "Keeps an application's FortiAIGate virtual key working. Reads the key from a HashiCorp Vault KV v2 secret and tests it against the data plane. If it no longer works (expired, revoked or suspended), the playbook issues a replacement - FortiAIGate cannot rotate a key in that state, so it creates a new key in the same workspace with the same name, limits and policies - writes the new secret into the same Vault path as a new version, and checks that the new key works. Every other field of the secret is kept. A key that still works is left alone. A key that was revoked on purpose, or that has model groups or provider access (which a replacement would not inherit), stops the run with a message instead.\nInputs: secret_path (the KV v2 path, for example lab/ai) and, when the key is not stored under api_key, key_field. Outputs: rotation_result (a one-line outcome), rotated (true or false), new_key_id and key_method (reissued or rotated). Run it from a schedule, or call it as a child playbook once per secret.",
           "isActive": true,
           "debug": false,
           "singleRecordExecution": false,
@@ -34,7 +34,7 @@
             "key_field"
           ],
           "synchronous": false,
-          "lastModifyDate": 1791924837,
+          "lastModifyDate": 1791925194,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/abc94d4b-1eda-523a-9790-8b8a20aa2327",
@@ -107,7 +107,7 @@
                 "params": {
                   "api_key": "{{ vars.steps.ReadCurrentSecret.data.data[vars.key_field] }}"
                 },
-                "version": "1.3.2",
+                "version": "1.3.4",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -159,7 +159,7 @@
                   "key_id": "",
                   "api_key": "{{ vars.steps.ReadCurrentSecret.data.data[vars.key_field] }}"
                 },
-                "version": "1.3.2",
+                "version": "1.3.4",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Replace Virtual Key",
                 "step_variables": [],
@@ -222,7 +222,7 @@
                 "params": {
                   "api_key": "{{ vars.steps.ReplaceKey.data.new_secret }}"
                 },
-                "version": "1.3.2",
+                "version": "1.3.4",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],

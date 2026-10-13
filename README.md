@@ -34,8 +34,10 @@ Key lifecycle details:
 - replace -> **Replace Virtual Key** handles both cases: it rotates an active
   key in place and otherwise creates a new key in the same workspace with the
   same name, limits and policies, returning `new_secret` either way. A
-  suspended key is revoked afterwards. Model groups and provider access on the
-  old key are not copied (listed in `not_copied`).
+  suspended key is revoked afterwards. It stops without creating anything for
+  a revoked key, and for a key that has model groups or provider access (they
+  are not copied, so the replacement could reach more), unless you turn on
+  the matching Allow option.
 - revoke -> sends a reason (the gateway requires one); set it with the
   optional Reason parameter.
 - create -> the gateway returns the secret exactly once (`secretKey`);
@@ -51,7 +53,9 @@ Give it the KV v2 path of the secret (`secret_path`, and `key_field` when the
 key is not stored under `api_key`). It reads the key, tests it against the data
 plane, and when the key no longer works issues a replacement, writes it to the
 same path as a new Vault version with every other field of the secret kept,
-and verifies the new key. A working key is left alone. It needs the
+and verifies the new key. A working key is left alone, and a key that was
+revoked, or that has model groups or provider access, stops the run with a
+message so a person decides. It needs the
 `hashicorp-vault-kv` connector with a write-capable token, and returns
 `rotation_result`, `rotated`, `new_key_id` and `key_method`. Schedule it, or
 call it once per secret from a parent playbook.

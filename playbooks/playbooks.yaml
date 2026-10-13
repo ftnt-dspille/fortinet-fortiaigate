@@ -33,7 +33,9 @@ playbooks:
       it creates a new key in the same workspace with the same name, limits and
       policies - writes the new secret into the same Vault path as a new
       version, and checks that the new key works. Every other field of the
-      secret is kept. A key that still works is left alone.
+      secret is kept. A key that still works is left alone. A key that was
+      revoked on purpose, or that has model groups or provider access (which a
+      replacement would not inherit), stops the run with a message instead.
 
       Inputs: secret_path (the KV v2 path, for example lab/ai) and, when the
       key is not stored under api_key, key_field. Outputs: rotation_result

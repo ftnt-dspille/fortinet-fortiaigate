@@ -198,6 +198,10 @@ def rotate_virtual_key(config, params):
 operations['rotate_virtual_key'] = rotate_virtual_key
 
 
+def _flag(params, name):
+    return params.get(name) in (True, 'true', 'True', 1, '1')
+
+
 def _parse_time(value):
     from datetime import datetime, timezone
     if not value:
@@ -234,6 +238,19 @@ def replace_virtual_key(config, params):
         return {'method': 'rotated', 'old_key_id': key_id, 'new_key_id': key_id,
                 'new_secret': rotated.get('new_secret'), 'key': rotated}
 
+    # A revoked key was shut off on purpose (often a leaked key): never bring it back unasked.
+    if old.get('status') == 'revoked' and not _flag(params, 'allow_revoked'):
+        raise ConnectorError(
+            'Key {0} was revoked, which is deliberate; it is not replaced automatically. '
+            'Set Allow Replacing a Revoked Key to replace it anyway.'.format(key_id))
+    # Model groups and provider access restrict what a key may use and cannot be copied here:
+    # a replacement without them could reach more than the original. Refuse rather than widen.
+    uncopied = [name for name in ('modelGroups', 'providerAccess') if old.get(name)]
+    if uncopied and not _flag(params, 'allow_uncopied'):
+        raise ConnectorError(
+            'Key {0} has {1} that a replacement would not inherit, so it could reach more than the '
+            'original. Nothing was created. Set Allow Replacement Without Model Access Limits to '
+            'create it anyway and apply them yourself.'.format(key_id, ' and '.join(uncopied)))
     workspace = (old.get('workspace') or {}).get('id')
     if not workspace:
         raise ConnectorError('Key {0} has no workspace to create its replacement in'.format(key_id))
@@ -253,7 +270,7 @@ def replace_virtual_key(config, params):
     own_policies = [p['id'] for p in (old.get('policyIds') or []) if isinstance(p, dict) and not p.get('assignedByOrg')]
     if own_policies:
         client.update_virtual_key(new_id, policy_ids=own_policies)
-    not_copied = [name for name in ('modelGroups', 'providerAccess') if old.get(name)]
+    not_copied = uncopied
     revoked = False
     if old.get('status') == 'suspended' and params.get('revoke_old', True) not in (False, 'false', 'False'):
         client.revoke_virtual_key(key_id, 'Replaced by key {0}'.format(new_id))
