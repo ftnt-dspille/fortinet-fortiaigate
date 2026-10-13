@@ -248,6 +248,25 @@ class Handler(BaseHTTPRequestHandler):
             STATE.keys[key_id]['status'] = 'revoked'
             self._send(200, {'id': key_id, 'status': 'revoked'})
             return
+        if self.path.startswith('/api/v1/admin/echo'):
+            self._send(200, {'method': 'POST', 'body': self._body(),
+                             'cookie': bool(self.headers.get('Cookie')),
+                             'csrf': self.headers.get('X-CSRF-Token')})
+            return
+        self._send(404, {'error': 'not found'})
+
+    def do_DELETE(self):
+        if not self._sessioned():
+            self._send(401, {'error': 'no session'})
+            return
+        if not self.headers.get('X-CSRF-Token'):
+            self._send(403, {'error': 'missing csrf'})
+            return
+        key_id = self._key_id_from('/api/v1/admin/virtual-keys/', '')
+        if key_id and key_id in STATE.keys:
+            del STATE.keys[key_id]
+            self._send(200, {'deleted': key_id})
+            return
         self._send(404, {'error': 'not found'})
 
     def do_GET(self):
@@ -369,6 +388,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {'data': [{'id': 'm-1'}, {'id': 'm-2'}, {'id': 'm-3'}]})
             else:
                 self._send(401, {'error': 'invalid key'})
+            return
+        if self.path.startswith('/api/v1/admin/echo'):
+            if not self._sessioned():
+                self._send(401, {'error': 'no session'})
+                return
+            self._send(200, {'method': 'GET', 'path': self.path,
+                             'cookie': bool(self.headers.get('Cookie'))})
             return
         self._send(404, {'error': 'not found'})
 

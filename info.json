@@ -1,7 +1,7 @@
 {
   "name": "fortinet-fortiaigate",
   "label": "Fortinet FortiAIGate",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Fortinet FortiAIGate is an inline AI gateway that brokers and guards access to large language model providers. This connector manages the gateway's virtual keys - the data-plane API keys that client applications present to the gateway's OpenAI-compatible endpoint. Operations cover listing and inspecting virtual keys, creating keys (the gateway returns the key secret exactly once), rotating a key in place (invalidating the old secret and issuing a new one), revoking keys, setting key expiry and rate limits, and validating a key against the data-plane models endpoint. Built for the FortiAIGate 8.x management API (session cookie plus per-mutation CSRF, admin console JSON API). Version 1.1 adds governed AI usage: chat completions through the data plane, guardrail testing, policy and provider visibility, workspace budgets and audit logs.",
   "publisher": "Fortinet",
   "category": "Analytics and SIEM",
@@ -846,6 +846,56 @@
           "properties": {}
         }
       }
+    },
+    {
+      "operation": "execute_api_request",
+      "title": "Execute API Request",
+      "description": "Calls any FortiAIGate management API endpoint with the configured login. A full URL is refused so the credentials only ever go to the configured server.",
+      "enabled": true,
+      "annotation": "execute_api_request",
+      "category": "miscellaneous",
+      "parameters": [
+        {
+          "title": "Endpoint",
+          "type": "text",
+          "name": "endpoint",
+          "description": "Path on the configured FortiAIGate server, for example /api/v1/admin/workspaces.",
+          "required": true,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. /api/v1/admin/workspaces"
+        },
+        {
+          "title": "Method",
+          "type": "select",
+          "name": "method",
+          "description": "HTTP method. Defaults to GET.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "options": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+          "value": "GET"
+        },
+        {
+          "title": "Query Parameters",
+          "type": "json",
+          "name": "query_params",
+          "description": "(Optional) JSON object of query string parameters.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "Request Body",
+          "type": "json",
+          "name": "request_body",
+          "description": "(Optional) JSON object sent with POST, PUT and PATCH.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        }
+      ],
+      "output_schema": {}
     }
   ]
 }

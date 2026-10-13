@@ -308,3 +308,64 @@ def test_update_virtual_key_policies_replace(fake, config):
     # omitted policy_ids keeps the record intact
     ops.update_virtual_key(config, {'key_id': 'k-1', 'tpm': '11'})
     assert 'policyIds' not in fake.last_put_body or fake.last_put_body.get('tpm') == '11'
+
+
+# - generic API call ------------------------------------------------------
+
+def test_execute_api_request_get_uses_the_session_and_query(fake, config):
+    out = ops.execute_api_request(config, {'endpoint': '/api/v1/admin/echo',
+                                           'query_params': {'a': '1'}})
+    assert out['cookie'] is True
+    assert out['path'] == '/api/v1/admin/echo?a=1'
+
+
+def test_execute_api_request_get_existing_endpoint_without_leading_slash(fake, config):
+    out = ops.execute_api_request(config, {'endpoint': 'api/v1/admin/workspaces'})
+    assert [w['workspaceName'] for w in out] == ['Default', 'Research']
+
+
+def test_execute_api_request_post_sends_csrf_and_body(fake, config):
+    out = ops.execute_api_request(config, {'endpoint': '/api/v1/admin/echo', 'method': 'post',
+                                           'request_body': '{"k": "v"}'})
+    assert out['body'] == {'k': 'v'}
+    assert out['csrf'] == 'fresh'
+    assert out['cookie'] is True
+
+
+def test_execute_api_request_delete(fake, config):
+    ops.execute_api_request(config, {'endpoint': '/api/v1/admin/virtual-keys/k-1', 'method': 'DELETE'})
+    assert 'k-1' not in fake.keys
+
+
+def test_execute_api_request_surfaces_auth_failure(fake, config):
+    from fortiaigate.connections import ConnectorError
+    with pytest.raises(ConnectorError, match='login failed'):
+        ops.execute_api_request(dict(config, password='wrong'), {'endpoint': '/api/v1/admin/workspaces'})
+
+
+def test_execute_api_request_surfaces_http_errors(fake, config):
+    from fortiaigate.connections import ConnectorError
+    with pytest.raises(ConnectorError, match='HTTP 404'):
+        ops.execute_api_request(config, {'endpoint': '/api/v1/admin/nope'})
+
+
+@pytest.mark.parametrize('endpoint', [
+    'https://evil.example.com/x', '//evil.example.com/x', 'ftp://x/y', '/api/../etc',
+    '/api/%2e%2e/etc', '/api/%252e%252e/etc', '/api/..%5cetc', '/api\\etc'])
+def test_execute_api_request_refuses_anything_that_could_send_credentials_elsewhere(fake, config, endpoint):
+    from fortiaigate.connections import ConnectorError
+    with pytest.raises(ConnectorError, match='path on the configured server'):
+        ops.execute_api_request(config, {'endpoint': endpoint})
+
+
+def test_execute_api_request_validates_input(fake, config):
+    from fortiaigate.connections import ConnectorError
+    with pytest.raises(ConnectorError, match='Endpoint is required'):
+        ops.execute_api_request(config, {})
+    with pytest.raises(ConnectorError, match='Method must be'):
+        ops.execute_api_request(config, {'endpoint': '/x', 'method': 'TRACE'})
+    with pytest.raises(ConnectorError, match='valid JSON'):
+        ops.execute_api_request(config, {'endpoint': '/x', 'request_body': '{nope'})
+    with pytest.raises(ConnectorError, match='JSON object'):
+        ops.execute_api_request(config, {'endpoint': '/x', 'query_params': '[1]'})
+

@@ -12,7 +12,10 @@ validation (`check_key`), guarded chat completions (`chat_completion`),
 guardrail listing and scanning (`test_guardrail` - scan arbitrary text, no
 LLM involved), policies (list / get, plus attaching policy ids to keys),
 provider health (`list_ai_providers`), workspace budgets, and the admin
-audit log (paginated, with filter options).
+audit log (paginated, with filter options), and execute API request: any
+management API endpoint (GET, POST, PUT, PATCH, DELETE) called with the
+configured login; a full URL is refused so the credentials never leave the
+configured server.
 
 Dynamic dropdowns: wherever a parameter takes an identifier or model name
 (workspace, key, policy, guardrail, detector, model), the step editor

@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .connections import FaigClient, key_id_from_secret
+from connectors.core.connector import ConnectorError
+
+from .connections import FaigClient, json_object, key_id_from_secret
 
 operations = {}
 
@@ -322,6 +324,23 @@ def get_model_options(config, params):
 
 
 operations['get_model_options'] = get_model_options
+
+
+def execute_api_request(config, params):
+    """Call any FortiAIGate management API endpoint with the configured login.
+
+    `endpoint` is a path on the configured server (for example
+    `/api/v1/admin/workspaces`). Methods: GET, POST, PUT, PATCH, DELETE.
+    """
+    method = (params.get('method') or 'GET').upper()
+    if method not in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE'):
+        raise ConnectorError('Method must be GET, POST, PUT, PATCH or DELETE')
+    return _client(config).raw(method, params.get('endpoint'),
+                               json_object(params.get('query_params'), 'Query Parameters'),
+                               json_object(params.get('request_body'), 'Request Body'))
+
+
+operations['execute_api_request'] = execute_api_request
 
 
 def _check_health(config):

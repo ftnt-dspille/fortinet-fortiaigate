@@ -1,5 +1,12 @@
 # fortinet-fortiaigate release notes
 
+## 1.3.0
+
+- New operation **Execute API Request**: call any FortiAIGate management API
+  endpoint (GET, POST, PUT, PATCH, DELETE) with the configured login, session
+  and CSRF handling. A full URL, a `//host` start, a `..` segment or a
+  backslash is refused, so the credentials only go to the configured server.
+
 ## 1.2.1
 
 - House style: single-dash conventions across prose, code banners, and the

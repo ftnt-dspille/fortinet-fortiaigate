@@ -16,7 +16,9 @@ Talks to the FortiAIGate 8.x admin console JSON API:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from typing import Any, Optional
+from urllib.parse import unquote, urlparse
 
 import requests
 
@@ -46,6 +48,41 @@ def normalize_server(server: str) -> str:
     if not (server.startswith('http://') or server.startswith('https://')):
         server = 'https://' + server
     return server
+
+
+def safe_endpoint(endpoint: Any) -> str:
+    """A path on the configured server, or an error.
+
+    A full URL, a `//host` start, a `..` segment (also percent-encoded, up to
+    three layers) or a backslash is refused, so the session and CSRF token can
+    never be sent to another host.
+    """
+    endpoint = str(endpoint or '').strip()
+    if not endpoint:
+        raise ConnectorError('Endpoint is required')
+    path = endpoint.split('?')[0]
+    for _ in range(3):
+        path = unquote(path)
+    parsed = urlparse(endpoint)
+    if (parsed.scheme or parsed.netloc or endpoint.startswith('//')
+            or '..' in path.split('/') or '\\' in path):
+        raise ConnectorError('Endpoint must be a path on the configured server, '
+                             'for example /api/v1/admin/workspaces - not a full URL')
+    return endpoint if endpoint.startswith('/') else '/' + endpoint
+
+
+def json_object(value: Any, name: str) -> Optional[dict]:
+    """A JSON object from a dict or a JSON string; blank means none."""
+    if value in (None, '', {}):
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise ConnectorError('{0} must be valid JSON'.format(name))
+    if not isinstance(value, dict):
+        raise ConnectorError('{0} must be a JSON object'.format(name))
+    return value
 
 
 @dataclass
@@ -377,11 +414,13 @@ class FaigClient:
                                     timeout=self.timeout)
         if resp.status_code == 401 and retry_auth:
             self._logged_in = False
-            return self._request(method, path, json_body, retry_auth=False)
+            return self._request(method, path, json_body, retry_auth=False,
+                                 params=params)
         return resp
 
-    def _call(self, method: str, path: str, json_body: Any = None) -> Any:
-        resp = self._request(method, path, json_body)
+    def _call(self, method: str, path: str, json_body: Any = None,
+              params: Any = None) -> Any:
+        resp = self._request(method, path, json_body, params=params)
         if resp.status_code >= 400:
             raise ConnectorError(
                 'FortiAIGate API {0} {1} failed (HTTP {2}): {3}'.format(
@@ -389,6 +428,10 @@ class FaigClient:
         if not resp.content:
             return {}
         return resp.json()
+
+    def raw(self, method: str, endpoint: str, params: Any = None, body: Any = None) -> Any:
+        """Any management API call, with this client's session and CSRF handling."""
+        return self._call(method, safe_endpoint(endpoint), json_body=body, params=params)
 
     # - management API ------------------------------------------------------
 
