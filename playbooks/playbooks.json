@@ -8,11 +8,11 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.3.1",
+      "name": "Sample - Fortinet FortiAIGate - 1.3.3",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
-      "uuid": "ecc80494-f216-54a2-a5bc-b6baaf0b8dea",
+      "uuid": "fef97bfb-4dd3-5260-919d-7119a9d18e0a",
       "recordTags": [
         "fortinet-fortiaigate",
         "Fortinet"
@@ -24,19 +24,20 @@
           "aliasName": null,
           "tag": "",
           "recordTags": [],
-          "description": "Rotation flow for FortiAIGate virtual keys: reads the current api_key from a HashiCorp Vault KV v2 secret, derives the gateway key id from the key itself (a virtual key embeds its record id), and validates the key against the data plane. If the key is expired, revoked or suspended (the models endpoint rejects it), the key is ROTATED on FortiAIGate (old secret invalidated, new secret issued for the same key id), the new secret is written to Vault as a new KV version - all other fields of the secret are preserved - and the new key is verified end-to-end. If the key is already valid, nothing happens.",
+          "description": "Keeps an application's FortiAIGate virtual key working. Reads the key from a HashiCorp Vault KV v2 secret and tests it against the data plane. If it no longer works (expired, revoked or suspended), the playbook issues a replacement - FortiAIGate cannot rotate a key in that state, so it creates a new key in the same workspace with the same name, limits and policies - writes the new secret into the same Vault path as a new version, and checks that the new key works. Every other field of the secret is kept. A key that still works is left alone.\nInputs: secret_path (the KV v2 path, for example lab/ai) and, when the key is not stored under api_key, key_field. Outputs: rotation_result (a one-line outcome), rotated (true or false), new_key_id and key_method (reissued or rotated). Run it from a schedule, or call it as a child playbook once per secret.",
           "isActive": true,
           "debug": false,
           "singleRecordExecution": false,
           "remoteExecutableFlag": 0,
           "parameters": [
-            "secret_path"
+            "secret_path",
+            "key_field"
           ],
           "synchronous": false,
-          "lastModifyDate": 1791409292,
-          "collection": "/api/3/workflow_collections/ecc80494-f216-54a2-a5bc-b6baaf0b8dea",
+          "lastModifyDate": 1791924837,
+          "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
-          "triggerStep": "/api/3/workflow_steps/8891ecf1-32a7-510a-9fa1-c12d5c707736",
+          "triggerStep": "/api/3/workflow_steps/abc94d4b-1eda-523a-9790-8b8a20aa2327",
           "steps": [
             {
               "@type": "WorkflowStep",
@@ -54,21 +55,22 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/b348f017-9a94-471f-87f8-ce88b6a7ad62",
               "group": null,
-              "uuid": "8891ecf1-32a7-510a-9fa1-c12d5c707736"
+              "uuid": "abc94d4b-1eda-523a-9790-8b8a20aa2327"
             },
             {
               "@type": "WorkflowStep",
               "name": "ResolvePath",
               "description": null,
               "arguments": {
-                "secret_path": "{{ vars.input.params.secret_path | default('lab/ai') }}"
+                "secret_path": "{{ vars.input.params.secret_path | default('lab/ai', true) }}",
+                "key_field": "{{ vars.input.params.key_field | default('api_key', true) }}"
               },
               "status": null,
               "top": "250",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
-              "uuid": "4156ddff-53be-512f-8c01-a252ffee86e9"
+              "uuid": "ee27d413-a39b-515a-8784-5aecb6ffc75b"
             },
             {
               "@type": "WorkflowStep",
@@ -92,7 +94,7 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
-              "uuid": "2e6f9399-3402-5bdc-959a-beb0100647e5"
+              "uuid": "b5970aff-75e8-53f0-9fe3-cb7e0fde4664"
             },
             {
               "@type": "WorkflowStep",
@@ -103,9 +105,9 @@
                 "operation": "check_key",
                 "config": "",
                 "params": {
-                  "api_key": "{{ vars.steps.ReadCurrentSecret.data.data.api_key }}"
+                  "api_key": "{{ vars.steps.ReadCurrentSecret.data.data[vars.key_field] }}"
                 },
-                "version": "1.2.1",
+                "version": "1.3.2",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -116,7 +118,7 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
-              "uuid": "27caa8b0-f61f-5fc5-866c-85e661baf1aa"
+              "uuid": "50772d40-7011-5beb-9b28-be9c3cdb20c4"
             },
             {
               "@type": "WorkflowStep",
@@ -125,15 +127,15 @@
               "arguments": {
                 "conditions": [
                   {
-                    "option": "Invalid - rotate",
+                    "option": "Invalid - replace",
                     "condition": "{{ vars.steps.CheckCurrentKey.data.valid | default(true) != true }}",
-                    "step_iri": "/api/3/workflow_steps/bbafcc5a-1732-5170-ab3f-ff9a15574f62",
-                    "step_name": "RotateKey"
+                    "step_iri": "/api/3/workflow_steps/b175a5d3-9e2a-5358-9d3f-dae0998f2e56",
+                    "step_name": "ReplaceKey"
                   },
                   {
                     "option": "Valid - nothing to do",
                     "default": true,
-                    "step_iri": "/api/3/workflow_steps/60e0ac37-72c4-54c7-a97f-5845512f55d4",
+                    "step_iri": "/api/3/workflow_steps/fe03d5f7-021c-50e7-bd41-e3acb5b92cfa",
                     "step_name": "AlreadyHealthy"
                   }
                 ]
@@ -143,23 +145,23 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
-              "uuid": "59d491ff-451f-5c65-ad4a-f63b2b58afba"
+              "uuid": "51cb83cf-19fc-5d4c-9420-2ae732d0f1ae"
             },
             {
               "@type": "WorkflowStep",
-              "name": "RotateKey",
+              "name": "ReplaceKey",
               "description": null,
               "arguments": {
                 "connector": "fortinet-fortiaigate",
-                "operation": "rotate_virtual_key",
+                "operation": "replace_virtual_key",
                 "config": "",
                 "params": {
                   "key_id": "",
-                  "api_key": "{{ vars.steps.ReadCurrentSecret.data.data.api_key }}"
+                  "api_key": "{{ vars.steps.ReadCurrentSecret.data.data[vars.key_field] }}"
                 },
-                "version": "1.2.1",
+                "version": "1.3.2",
                 "name": "Fortinet FortiAIGate",
-                "operationTitle": "Rotate Virtual Key",
+                "operationTitle": "Replace Virtual Key",
                 "step_variables": [],
                 "pickFromTenant": false
               },
@@ -168,21 +170,21 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
-              "uuid": "bbafcc5a-1732-5170-ab3f-ff9a15574f62"
+              "uuid": "b175a5d3-9e2a-5358-9d3f-dae0998f2e56"
             },
             {
               "@type": "WorkflowStep",
               "name": "BuildPayload",
               "description": null,
               "arguments": {
-                "payload": "{\"api_key\": \"{{ vars.steps.RotateKey.data.new_secret }}\", \"base_url\": \"{{ vars.steps.ReadCurrentSecret.data.data.base_url }}\", \"model\": \"{{ vars.steps.ReadCurrentSecret.data.data.model }}\"}"
+                "payload": "{{ (vars.steps.ReadCurrentSecret.data.data | combine({vars.key_field: vars.steps.ReplaceKey.data.new_secret})) | tojson }}"
               },
               "status": null,
               "top": "900",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
-              "uuid": "269160ab-844c-53dc-8835-1e186af21ef1"
+              "uuid": "84314bf7-a8b3-5227-b0ba-83b4cee1a0e8"
             },
             {
               "@type": "WorkflowStep",
@@ -207,7 +209,7 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
-              "uuid": "bebb0171-d2d7-52dd-8c42-3b2bbeb0c71d"
+              "uuid": "f4228f02-1f80-5153-8909-4691589df183"
             },
             {
               "@type": "WorkflowStep",
@@ -218,9 +220,9 @@
                 "operation": "check_key",
                 "config": "",
                 "params": {
-                  "api_key": "{{ vars.steps.RotateKey.data.new_secret }}"
+                  "api_key": "{{ vars.steps.ReplaceKey.data.new_secret }}"
                 },
-                "version": "1.2.1",
+                "version": "1.3.2",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -231,7 +233,7 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
-              "uuid": "a26865ff-ab9b-5878-b5a0-57df77ec87d2"
+              "uuid": "05b52e8f-a557-56ba-8096-205b9920ea7f"
             },
             {
               "@type": "WorkflowStep",
@@ -242,13 +244,13 @@
                   {
                     "option": "New key valid",
                     "condition": "{{ vars.steps.VerifyNewKey.data.valid | default(false) }}",
-                    "step_iri": "/api/3/workflow_steps/b6f2fe9c-eaf0-5e24-bc3f-19f3a1ea728a",
+                    "step_iri": "/api/3/workflow_steps/3e345387-a2e4-5870-8de2-5a814523fe75",
                     "step_name": "Done"
                   },
                   {
                     "option": "New key invalid - run failed",
                     "default": true,
-                    "step_iri": "/api/3/workflow_steps/b57cc047-32dd-5217-82ca-9d07030f7fa7",
+                    "step_iri": "/api/3/workflow_steps/e880b871-3306-5bca-b235-32df9e0a0f14",
                     "step_name": "FailRotation"
                   }
                 ]
@@ -258,188 +260,193 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
-              "uuid": "922b56ae-6105-5151-b2be-04b8239bd479"
+              "uuid": "e8757c3d-50bb-5fed-bc54-2b006c1dcdf4"
             },
             {
               "@type": "WorkflowStep",
               "name": "AlreadyHealthy",
               "description": null,
               "arguments": {
-                "rotation_outcome": "no-op - stored key already valid"
+                "rotation_outcome": "no-op - stored key already valid",
+                "rotated": false
               },
               "status": null,
               "top": "770",
               "left": "880",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
-              "uuid": "60e0ac37-72c4-54c7-a97f-5845512f55d4"
+              "uuid": "fe03d5f7-021c-50e7-bd41-e3acb5b92cfa"
             },
             {
               "@type": "WorkflowStep",
               "name": "FailRotation",
               "description": null,
               "arguments": {
-                "rotation_outcome": "failed - rotated key rejected by the data plane"
+                "rotation_outcome": "failed - rotated key rejected by the data plane",
+                "rotated": false
               },
               "status": null,
               "top": "1420",
               "left": "1220",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
-              "uuid": "b57cc047-32dd-5217-82ca-9d07030f7fa7"
+              "uuid": "e880b871-3306-5bca-b235-32df9e0a0f14"
             },
             {
               "@type": "WorkflowStep",
               "name": "Done",
               "description": null,
               "arguments": {
-                "rotation_result": "{{ vars.rotation_outcome | default(\"rotated - new key stored in Vault and verified\") }}"
+                "new_key_id": "{{ vars.steps.ReplaceKey.data.new_key_id | default(\"\") }}",
+                "key_method": "{{ vars.steps.ReplaceKey.data.method | default(\"\") }}",
+                "rotation_result": "{{ vars.rotation_outcome | default(\"replaced - new key stored in Vault and verified\") }}",
+                "rotated": "{{ vars.rotated | default(true) }}"
               },
               "status": null,
               "top": "1420",
               "left": "880",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
-              "uuid": "b6f2fe9c-eaf0-5e24-bc3f-19f3a1ea728a"
+              "uuid": "3e345387-a2e4-5870-8de2-5a814523fe75"
             }
           ],
           "routes": [
             {
               "@type": "WorkflowRoute",
               "name": "Start -> ResolvePath",
-              "targetStep": "/api/3/workflow_steps/4156ddff-53be-512f-8c01-a252ffee86e9",
-              "sourceStep": "/api/3/workflow_steps/8891ecf1-32a7-510a-9fa1-c12d5c707736",
+              "targetStep": "/api/3/workflow_steps/ee27d413-a39b-515a-8784-5aecb6ffc75b",
+              "sourceStep": "/api/3/workflow_steps/abc94d4b-1eda-523a-9790-8b8a20aa2327",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "d6e6e473-d051-5969-b65a-7936b09b9cd1"
+              "uuid": "0a1794bf-6488-52af-855b-d8e73bd59e40"
             },
             {
               "@type": "WorkflowRoute",
               "name": "ResolvePath -> ReadCurrentSecret",
-              "targetStep": "/api/3/workflow_steps/2e6f9399-3402-5bdc-959a-beb0100647e5",
-              "sourceStep": "/api/3/workflow_steps/4156ddff-53be-512f-8c01-a252ffee86e9",
+              "targetStep": "/api/3/workflow_steps/b5970aff-75e8-53f0-9fe3-cb7e0fde4664",
+              "sourceStep": "/api/3/workflow_steps/ee27d413-a39b-515a-8784-5aecb6ffc75b",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "c60a698c-3b6f-5014-a5f2-4138012672a0"
+              "uuid": "6996ce37-1e99-5d91-a16d-66ed66535f09"
             },
             {
               "@type": "WorkflowRoute",
               "name": "ReadCurrentSecret -> CheckCurrentKey",
-              "targetStep": "/api/3/workflow_steps/27caa8b0-f61f-5fc5-866c-85e661baf1aa",
-              "sourceStep": "/api/3/workflow_steps/2e6f9399-3402-5bdc-959a-beb0100647e5",
+              "targetStep": "/api/3/workflow_steps/50772d40-7011-5beb-9b28-be9c3cdb20c4",
+              "sourceStep": "/api/3/workflow_steps/b5970aff-75e8-53f0-9fe3-cb7e0fde4664",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "99a700d1-205e-5404-ae2d-84333005b0e9"
+              "uuid": "36672a28-11ef-56a6-993f-8f689cfa517e"
             },
             {
               "@type": "WorkflowRoute",
               "name": "CheckCurrentKey -> KeyValid",
-              "targetStep": "/api/3/workflow_steps/59d491ff-451f-5c65-ad4a-f63b2b58afba",
-              "sourceStep": "/api/3/workflow_steps/27caa8b0-f61f-5fc5-866c-85e661baf1aa",
+              "targetStep": "/api/3/workflow_steps/51cb83cf-19fc-5d4c-9420-2ae732d0f1ae",
+              "sourceStep": "/api/3/workflow_steps/50772d40-7011-5beb-9b28-be9c3cdb20c4",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "1d0dd367-67ce-53e6-921d-890954c5a15b"
+              "uuid": "0821da7f-d3c4-597a-9891-a709a2b10574"
             },
             {
               "@type": "WorkflowRoute",
-              "name": "KeyValid -> RotateKey",
-              "targetStep": "/api/3/workflow_steps/bbafcc5a-1732-5170-ab3f-ff9a15574f62",
-              "sourceStep": "/api/3/workflow_steps/59d491ff-451f-5c65-ad4a-f63b2b58afba",
-              "label": "Invalid - rotate",
+              "name": "KeyValid -> ReplaceKey",
+              "targetStep": "/api/3/workflow_steps/b175a5d3-9e2a-5358-9d3f-dae0998f2e56",
+              "sourceStep": "/api/3/workflow_steps/51cb83cf-19fc-5d4c-9420-2ae732d0f1ae",
+              "label": "Invalid - replace",
               "isExecuted": false,
               "group": null,
-              "uuid": "7914b041-9b3d-559d-828e-529bad2d11c2"
+              "uuid": "8238d1ff-91ad-567f-8d00-0a165338ac84"
             },
             {
               "@type": "WorkflowRoute",
               "name": "KeyValid -> AlreadyHealthy",
-              "targetStep": "/api/3/workflow_steps/60e0ac37-72c4-54c7-a97f-5845512f55d4",
-              "sourceStep": "/api/3/workflow_steps/59d491ff-451f-5c65-ad4a-f63b2b58afba",
+              "targetStep": "/api/3/workflow_steps/fe03d5f7-021c-50e7-bd41-e3acb5b92cfa",
+              "sourceStep": "/api/3/workflow_steps/51cb83cf-19fc-5d4c-9420-2ae732d0f1ae",
               "label": "Valid - nothing to do",
               "isExecuted": false,
               "group": null,
-              "uuid": "3a6a5693-1e77-59f3-a928-9d12c8712470"
+              "uuid": "ca51694f-fa96-5b75-8ae0-a34a54573ba3"
             },
             {
               "@type": "WorkflowRoute",
-              "name": "RotateKey -> BuildPayload",
-              "targetStep": "/api/3/workflow_steps/269160ab-844c-53dc-8835-1e186af21ef1",
-              "sourceStep": "/api/3/workflow_steps/bbafcc5a-1732-5170-ab3f-ff9a15574f62",
+              "name": "ReplaceKey -> BuildPayload",
+              "targetStep": "/api/3/workflow_steps/84314bf7-a8b3-5227-b0ba-83b4cee1a0e8",
+              "sourceStep": "/api/3/workflow_steps/b175a5d3-9e2a-5358-9d3f-dae0998f2e56",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "d67ea7bf-f67f-5b7b-86ce-2788054b07fa"
+              "uuid": "e9e15ce8-5a60-5968-b532-bc196954a156"
             },
             {
               "@type": "WorkflowRoute",
               "name": "BuildPayload -> WriteSecret",
-              "targetStep": "/api/3/workflow_steps/bebb0171-d2d7-52dd-8c42-3b2bbeb0c71d",
-              "sourceStep": "/api/3/workflow_steps/269160ab-844c-53dc-8835-1e186af21ef1",
+              "targetStep": "/api/3/workflow_steps/f4228f02-1f80-5153-8909-4691589df183",
+              "sourceStep": "/api/3/workflow_steps/84314bf7-a8b3-5227-b0ba-83b4cee1a0e8",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "10e66574-cbc5-5b56-b289-7284c6f7e1aa"
+              "uuid": "1225defd-6a34-5420-8d23-aa3dca39f6a8"
             },
             {
               "@type": "WorkflowRoute",
               "name": "WriteSecret -> VerifyNewKey",
-              "targetStep": "/api/3/workflow_steps/a26865ff-ab9b-5878-b5a0-57df77ec87d2",
-              "sourceStep": "/api/3/workflow_steps/bebb0171-d2d7-52dd-8c42-3b2bbeb0c71d",
+              "targetStep": "/api/3/workflow_steps/05b52e8f-a557-56ba-8096-205b9920ea7f",
+              "sourceStep": "/api/3/workflow_steps/f4228f02-1f80-5153-8909-4691589df183",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "31bb7fa8-d91b-56a4-8e0b-0e4341d77a91"
+              "uuid": "199f657d-0e12-582e-8fe1-ca7d6fd4b918"
             },
             {
               "@type": "WorkflowRoute",
               "name": "VerifyNewKey -> NewKeyValid",
-              "targetStep": "/api/3/workflow_steps/922b56ae-6105-5151-b2be-04b8239bd479",
-              "sourceStep": "/api/3/workflow_steps/a26865ff-ab9b-5878-b5a0-57df77ec87d2",
+              "targetStep": "/api/3/workflow_steps/e8757c3d-50bb-5fed-bc54-2b006c1dcdf4",
+              "sourceStep": "/api/3/workflow_steps/05b52e8f-a557-56ba-8096-205b9920ea7f",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "cd7ff61c-ac54-518d-a68f-6f70de83b1ec"
+              "uuid": "78086f57-d217-5cb0-97a5-c12a7e0ba78d"
             },
             {
               "@type": "WorkflowRoute",
               "name": "NewKeyValid -> Done",
-              "targetStep": "/api/3/workflow_steps/b6f2fe9c-eaf0-5e24-bc3f-19f3a1ea728a",
-              "sourceStep": "/api/3/workflow_steps/922b56ae-6105-5151-b2be-04b8239bd479",
+              "targetStep": "/api/3/workflow_steps/3e345387-a2e4-5870-8de2-5a814523fe75",
+              "sourceStep": "/api/3/workflow_steps/e8757c3d-50bb-5fed-bc54-2b006c1dcdf4",
               "label": "New key valid",
               "isExecuted": false,
               "group": null,
-              "uuid": "b9317673-021f-5e5b-9781-95aa17ecde59"
+              "uuid": "8c86e4ec-d272-5b27-b150-f4fb2fceb52b"
             },
             {
               "@type": "WorkflowRoute",
               "name": "NewKeyValid -> FailRotation",
-              "targetStep": "/api/3/workflow_steps/b57cc047-32dd-5217-82ca-9d07030f7fa7",
-              "sourceStep": "/api/3/workflow_steps/922b56ae-6105-5151-b2be-04b8239bd479",
+              "targetStep": "/api/3/workflow_steps/e880b871-3306-5bca-b235-32df9e0a0f14",
+              "sourceStep": "/api/3/workflow_steps/e8757c3d-50bb-5fed-bc54-2b006c1dcdf4",
               "label": "New key invalid - run failed",
               "isExecuted": false,
               "group": null,
-              "uuid": "3e0887a1-4fb6-5f8c-b54f-c4f97e3a411a"
+              "uuid": "13684cb2-0d85-58cf-8180-6c490a4b48d7"
             },
             {
               "@type": "WorkflowRoute",
               "name": "AlreadyHealthy -> Done",
-              "targetStep": "/api/3/workflow_steps/b6f2fe9c-eaf0-5e24-bc3f-19f3a1ea728a",
-              "sourceStep": "/api/3/workflow_steps/60e0ac37-72c4-54c7-a97f-5845512f55d4",
+              "targetStep": "/api/3/workflow_steps/3e345387-a2e4-5870-8de2-5a814523fe75",
+              "sourceStep": "/api/3/workflow_steps/fe03d5f7-021c-50e7-bd41-e3acb5b92cfa",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "3f82b75a-7dea-5eca-8efc-961514a14bf4"
+              "uuid": "438bf020-0861-5940-b7d1-0de8d1efe279"
             }
           ],
           "groups": [
             {
               "@type": "WorkflowGroup",
               "name": "Note: ResolvePath",
-              "description": "The Vault path of the secret holding the api_key; lab default lab/ai.",
+              "description": "The Vault path of the secret holding the key, and the field it is stored in.",
               "type": "note",
               "isCollapsed": false,
               "hasTriggerStep": false,
@@ -450,7 +457,7 @@
               "left": "540",
               "height": "94",
               "width": "440",
-              "uuid": "89b1e964-8b16-5d87-bddd-842813ce2143",
+              "uuid": "31adc29f-74ee-53b8-8890-08b0453440ca",
               "recordTags": []
             },
             {
@@ -467,24 +474,41 @@
               "left": "1220",
               "height": "72",
               "width": "440",
-              "uuid": "e2fa52d0-a02e-5252-a3f6-3717a21b130e",
+              "uuid": "455e7dfc-a5ff-5fb9-aecf-92bd5cae8868",
               "recordTags": []
             },
             {
               "@type": "WorkflowGroup",
-              "name": "Note: BuildPayload",
-              "description": "KV v2 writes create a new version and drop omitted fields, so the new secret data carries every original field with api_key replaced. Built as a JSON string because connector params are strings.",
+              "name": "Note: ReplaceKey",
+              "description": "An expired, revoked or suspended key cannot be rotated, so this issues a replacement key (an active key would be rotated in place).",
               "type": "note",
               "isCollapsed": false,
               "hasTriggerStep": false,
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "900",
+              "top": "770",
+              "left": "1220",
+              "height": "116",
+              "width": "440",
+              "uuid": "6b13035a-490d-5330-bb8c-bef37b07af11",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: BuildPayload",
+              "description": "KV v2 writes create a new version and drop omitted fields, so the new secret data is the whole current secret with only the key field replaced. Built as a JSON string because connector params are strings.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "906",
               "left": "540",
               "height": "138",
               "width": "440",
-              "uuid": "801a299a-de8d-5878-9b2a-7ec55c40a626",
+              "uuid": "4f2a4394-6978-5a37-9f0f-0435789a220b",
               "recordTags": []
             },
             {
@@ -501,7 +525,7 @@
               "left": "1560",
               "height": "94",
               "width": "440",
-              "uuid": "41f29cef-844c-5995-9ecd-97ddc6e58ff5",
+              "uuid": "0f4d775a-1fd6-5f0c-8a07-876b2434cf7e",
               "recordTags": []
             },
             {
@@ -518,7 +542,7 @@
               "left": "1560",
               "height": "72",
               "width": "440",
-              "uuid": "e7894f65-5c55-5870-b2d2-28019d7e53ab",
+              "uuid": "8bbb6a68-437e-58c6-a07c-6618ad15e4e0",
               "recordTags": []
             },
             {
@@ -535,14 +559,14 @@
               "left": "1560",
               "height": "72",
               "width": "440",
-              "uuid": "4c2fe7f2-598a-5cfc-9257-1b9179993c31",
+              "uuid": "00b7074a-85a9-56c7-aa71-7cfa753b392f",
               "recordTags": []
             }
           ],
           "priority": "/api/3/picklists/9e8d41e4-8ada-4a2c-bd02-07f62c6d0a00",
           "playbookOrigin": null,
           "isEditable": true,
-          "uuid": "b42fc3b2-f9e5-5bb7-85cf-d587bebe7fd7",
+          "uuid": "ff36ab54-a507-5be7-8806-7724a323d7c7",
           "owners": [],
           "isPrivate": false
         }

@@ -100,6 +100,12 @@ def test_revoke_virtual_key(fake, config):
     assert result['status'] == 'revoked'
     record = ops.get_virtual_key(config, {'key_id': 'k-1'})
     assert record['status'] == 'revoked'
+    assert fake.last_revoke_body == {'reason': 'Revoked from FortiSOAR'}
+
+
+def test_revoke_sends_the_given_reason(fake, config):
+    ops.revoke_virtual_key(config, {'key_id': 'k-1', 'reason': 'leaked in a ticket'})
+    assert fake.last_revoke_body == {'reason': 'leaked in a ticket'}
 
 
 def test_check_key_valid(fake, config):
@@ -410,3 +416,65 @@ def test_execute_api_request_does_not_follow_redirects(fake, config, monkeypatch
     monkeypatch.setattr(requests.Session, 'request', request)
     with pytest.raises(ConnectorError, match='redirect'):
         ops.execute_api_request(config, {'endpoint': '/api/v1/admin/workspaces'})
+
+
+def _expired_key(fake, status='expired', **extra):
+    fake.keys['old-1'] = dict({
+        'id': 'old-1', 'keyName': 'svc-key', 'status': status,
+        'createdAt': '2026-01-01T00:00:00.000Z', 'expiresAt': '2026-01-31T00:00:00.000Z',
+        'workspace': {'id': 'ws-1', 'name': 'Default'}, 'tpm': 1000, 'rpm': None,
+        'policyIds': [{'id': 'org-pol', 'assignedByOrg': True}, {'id': 'own-pol', 'assignedByOrg': False}],
+        'modelGroups': [], 'providerAccess': []}, **extra)
+
+
+def test_replace_rotates_an_active_key_in_place(fake, config):
+    result = ops.replace_virtual_key(config, {'key_id': 'k-1'})
+    assert result['method'] == 'rotated' and result['new_key_id'] == 'k-1'
+    assert result['new_secret'].startswith('faig_rotated_')
+
+
+def test_a_rotate_of_an_expired_key_is_refused_by_the_gateway(fake, config):
+    from fortiaigate.connections import ConnectorError
+    _expired_key(fake)
+    with pytest.raises(ConnectorError, match='cannot be rotated'):
+        ops.rotate_virtual_key(config, {'key_id': 'old-1'})
+
+
+def test_replace_reissues_an_expired_key_with_the_same_shape(fake, config):
+    _expired_key(fake)
+    result = ops.replace_virtual_key(config, {'key_id': 'old-1'})
+    assert result['method'] == 'reissued' and result['old_status'] == 'expired'
+    assert result['new_key_id'] != 'old-1' and result['new_secret'].startswith('faig_')
+    body = fake.last_create_body
+    assert body['workspaceId'] == 'ws-1' and body['keyName'] == 'svc-key' and body['tpm'] == '1000'
+    assert 'rpm' not in body
+    assert body['expiresAt']                      # the same 30-day lifetime again, from now
+    assert fake.last_put_body['policyIds'] == ['own-pol']     # org policies attach themselves
+    assert result['old_revoked'] is False and fake.last_revoke_body is None
+
+
+def test_replace_takes_the_key_secret_and_a_new_lifetime(fake, config):
+    _expired_key(fake)
+    fake.keys['9f8e7d6c-5b4a-3928-1706-f1e2d3c4b5a6'] = dict(fake.keys.pop('old-1'), id='9f8e7d6c-5b4a-3928-1706-f1e2d3c4b5a6')
+    result = ops.replace_virtual_key(config, {'api_key': 'faig_9f8e7d6c5b4a39281706f1e2d3c4b5a6_secret', 'expires_in_days': '90',
+                                              'new_key_name': 'svc-key-2'})
+    assert result['method'] == 'reissued' and fake.last_create_body['keyName'] == 'svc-key-2'
+
+
+def test_replace_revokes_a_suspended_key_after_its_replacement_exists(fake, config):
+    _expired_key(fake, status='suspended', expiresAt=None)
+    result = ops.replace_virtual_key(config, {'key_id': 'old-1'})
+    assert result['old_revoked'] is True and fake.last_revoke_body['reason'].startswith('Replaced by key ')
+    assert 'expiresAt' not in fake.last_create_body or not fake.last_create_body['expiresAt']
+
+
+def test_replace_reports_what_it_could_not_copy(fake, config):
+    _expired_key(fake, modelGroups=[{'id': 'mg-1'}])
+    assert ops.replace_virtual_key(config, {'key_id': 'old-1'})['not_copied'] == ['modelGroups']
+
+
+def test_a_renewed_key_keeps_its_name_and_the_active_one_is_chosen(fake, config):
+    _expired_key(fake)
+    fake.keys['new-1'] = {'id': 'new-1', 'keyName': 'svc-key', 'status': 'active'}
+    assert ops.resolve_names(ops._client(config), {'key_id': 'svc-key'})['key_id'] == 'new-1'
+    assert ops.get_virtual_key_options(config, {}).count('svc-key') == 1

@@ -523,8 +523,10 @@ class FaigClient:
                     break
         return data
 
-    def revoke_virtual_key(self, key_id: str) -> dict:
-        return self._call('POST', '/api/v1/admin/virtual-keys/{0}/revoke'.format(key_id))
+    def revoke_virtual_key(self, key_id: str, reason: str = 'Revoked from FortiSOAR') -> dict:
+        # The gateway rejects a revoke without a reason ("expected required property reason").
+        return self._call('POST', '/api/v1/admin/virtual-keys/{0}/revoke'.format(key_id),
+                          json_body={'reason': reason})
 
     # - data plane ---------------------------------------------------------
 

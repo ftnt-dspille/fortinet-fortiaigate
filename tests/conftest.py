@@ -141,6 +141,8 @@ class FakeState:
         ]
         self.last_guardrail_test = None
         self.last_put_body = None
+        self.last_revoke_body = None
+        self.last_create_body = None
         self.mutations = 0
         self.expire_after_mutations = None
 
@@ -207,8 +209,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/v1/admin/virtual-keys':
             body = self._body()
             new_id = 'k-' + uuid.uuid4().hex[:8]
+            STATE.last_create_body = body
             record = {'id': new_id, 'keyName': body.get('keyName', ''),
                       'status': 'active', 'expiresAt': body.get('expiresAt'),
+                      'workspace': {'id': body.get('workspaceId')},
+                      'createdAt': '2026-10-13T00:00:00.000Z',
                       'tpm': body.get('tpm'), 'rpm': body.get('rpm'),
                       'keyPreview': 'faig-' + new_id[:4]}
             secret = 'faig_' + uuid.uuid4().hex[:24]
@@ -217,7 +222,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         key_id = self._key_id_from('/api/v1/admin/virtual-keys/', '/rotate')
         if key_id and key_id in STATE.keys:
-            STATE.keys[key_id]['status'] = 'active'
+            status = STATE.keys[key_id].get('status')
+            if status != 'active':
+                # what FortiAIGate answers: only an active key rotates
+                self._send(422, {'error': 'a {0} key cannot be rotated: mint a new key instead'.format(status)})
+                return
             self._send(200, {'id': key_id,
                              'secretKey': 'faig_rotated_' + uuid.uuid4().hex[:12]})
             return
@@ -245,6 +254,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         key_id = self._key_id_from('/api/v1/admin/virtual-keys/', '/revoke')
         if key_id and key_id in STATE.keys:
+            body = self._body()
+            if not isinstance(body, dict) or not body.get('reason'):
+                # what FortiAIGate 8.0.2 answers to a revoke without a reason
+                self._send(422, {'detail': [{'loc': ['body'], 'type': 'value_error',
+                                             'msg': 'expected required property reason to be present'}]})
+                return
+            STATE.last_revoke_body = body
             STATE.keys[key_id]['status'] = 'revoked'
             self._send(200, {'id': key_id, 'status': 'revoked'})
             return

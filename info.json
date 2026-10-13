@@ -1,7 +1,7 @@
 {
   "name": "fortinet-fortiaigate",
   "label": "Fortinet FortiAIGate",
-  "version": "1.3.1",
+  "version": "1.3.3",
   "description": "Fortinet FortiAIGate is an inline AI gateway that brokers and guards access to large language model providers. This connector manages the gateway's virtual keys - the data-plane API keys that client applications present to the gateway's OpenAI-compatible endpoint. Operations cover listing and inspecting virtual keys, creating keys (the gateway returns the key secret exactly once), rotating a key in place (invalidating the old secret and issuing a new one), revoking keys, setting key expiry and rate limits, and validating a key against the data-plane models endpoint. Built for the FortiAIGate 8.x management API (session cookie plus per-mutation CSRF, admin console JSON API). Version 1.1 adds governed AI usage: chat completions through the data plane, guardrail testing, policy and provider visibility, workspace budgets and audit logs.",
   "publisher": "Fortinet",
   "category": "Analytics and SIEM",
@@ -337,6 +337,88 @@
       }
     },
     {
+      "operation": "replace_virtual_key",
+      "title": "Replace Virtual Key",
+      "description": "Get a working replacement for a virtual key and its new secret. FortiAIGate only rotates a key that is still active; an expired, revoked or suspended key cannot be rotated. So an active key is rotated in place (same id), and any other key is replaced by a new key in the same workspace with the same name, limits and policies (a suspended key is revoked afterwards). Pass the key (Key ID) or its secret (API Key). The new secret is returned as new_secret and is shown only once - store it immediately, for example in HashiCorp Vault.",
+      "enabled": true,
+      "annotation": "replace_virtual_key",
+      "category": "containment",
+      "parameters": [
+        {
+          "title": "Key ID",
+          "type": "select",
+          "name": "key_id",
+          "description": "(Optional) The virtual key to replace, by name or id. Leave empty when passing the key secret instead.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_virtual_key_options"
+        },
+        {
+          "title": "API Key",
+          "type": "password",
+          "name": "api_key",
+          "description": "(Optional) The virtual key secret itself; the connector derives the key id from it. Starts with 'faig_'.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "New Key Name",
+          "type": "text",
+          "name": "new_key_name",
+          "description": "(Optional) Name for a replacement key. Defaults to the name of the key being replaced.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "value": ""
+        },
+        {
+          "title": "Expires In (Days)",
+          "type": "text",
+          "name": "expires_in_days",
+          "description": "(Optional) Lifetime of a replacement key in days. Defaults to the lifetime the old key had, or no expiry if it had none.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "value": ""
+        },
+        {
+          "title": "Revoke Old Key",
+          "type": "checkbox",
+          "name": "revoke_old",
+          "description": "Revoke a suspended key once its replacement exists. An expired key needs no revoking. Default on.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "value": true
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "old_key_id": {
+            "type": "string"
+          },
+          "new_key_id": {
+            "type": "string"
+          },
+          "new_secret": {
+            "type": "string"
+          },
+          "old_revoked": {
+            "type": "boolean"
+          },
+          "not_copied": {
+            "type": "array"
+          }
+        }
+      }
+    },
+    {
       "operation": "revoke_virtual_key",
       "title": "Revoke Virtual Key",
       "description": "Revoke a virtual key. After revocation the key secret stops working on the data plane; the record remains visible with status 'revoked'.",
@@ -353,6 +435,16 @@
           "editable": true,
           "visible": true,
           "apiOperation": "get_virtual_key_options"
+        },
+        {
+          "title": "Reason",
+          "type": "text",
+          "name": "reason",
+          "description": "(Optional) Why the key is being revoked; FortiAIGate records it with the revocation. Defaults to 'Revoked from FortiSOAR'.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "value": ""
         }
       ],
       "output_schema": {
@@ -873,7 +965,13 @@
           "required": false,
           "editable": true,
           "visible": true,
-          "options": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+          "options": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ],
           "value": "GET"
         },
         {
