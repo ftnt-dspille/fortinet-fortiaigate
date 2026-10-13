@@ -398,7 +398,7 @@ class FaigClient:
 
     def _request(self, method: str, path: str, json_body: Any = None,
                  retry_auth: bool = True,
-                 params: Any = None) -> requests.Response:
+                 params: Any = None, follow_redirects: bool = True) -> requests.Response:
         if not self._logged_in:
             self._login()
         headers = {}
@@ -411,16 +411,22 @@ class FaigClient:
         resp = self.session.request(method, self._url(path),
                                     json=json_body, headers=headers,
                                     params=params,
-                                    timeout=self.timeout)
+                                    timeout=self.timeout,
+                                    allow_redirects=follow_redirects)
         if resp.status_code == 401 and retry_auth:
             self._logged_in = False
             return self._request(method, path, json_body, retry_auth=False,
-                                 params=params)
+                                 params=params, follow_redirects=follow_redirects)
         return resp
 
     def _call(self, method: str, path: str, json_body: Any = None,
-              params: Any = None) -> Any:
-        resp = self._request(method, path, json_body, params=params)
+              params: Any = None, follow_redirects: bool = True) -> Any:
+        resp = self._request(method, path, json_body, params=params,
+                             follow_redirects=follow_redirects)
+        if not follow_redirects and 300 <= resp.status_code < 400:
+            # The session cookie and CSRF token must not follow a redirect to another host.
+            raise ConnectorError('FortiAIGate answered with a redirect (HTTP {0}); not following '
+                                 'it so the session stays on the configured server'.format(resp.status_code))
         if resp.status_code >= 400:
             raise ConnectorError(
                 'FortiAIGate API {0} {1} failed (HTTP {2}): {3}'.format(
@@ -431,7 +437,8 @@ class FaigClient:
 
     def raw(self, method: str, endpoint: str, params: Any = None, body: Any = None) -> Any:
         """Any management API call, with this client's session and CSRF handling."""
-        return self._call(method, safe_endpoint(endpoint), json_body=body, params=params)
+        return self._call(method, safe_endpoint(endpoint), json_body=body, params=params,
+                          follow_redirects=False)
 
     # - management API ------------------------------------------------------
 

@@ -369,3 +369,23 @@ def test_execute_api_request_validates_input(fake, config):
     with pytest.raises(ConnectorError, match='JSON object'):
         ops.execute_api_request(config, {'endpoint': '/x', 'query_params': '[1]'})
 
+
+
+def test_execute_api_request_does_not_follow_redirects(fake, config, monkeypatch):
+    import requests
+    from fortiaigate.connections import ConnectorError
+
+    class Redirect(object):
+        status_code, content, text, headers = 302, b'', '', {'Location': 'http://other.invalid/x'}
+
+    real = requests.Session.request
+
+    def request(self, method, url, **kwargs):
+        if url.endswith('/api/v1/admin/workspaces'):
+            assert kwargs.get('allow_redirects') is False
+            return Redirect()
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, 'request', request)
+    with pytest.raises(ConnectorError, match='redirect'):
+        ops.execute_api_request(config, {'endpoint': '/api/v1/admin/workspaces'})
