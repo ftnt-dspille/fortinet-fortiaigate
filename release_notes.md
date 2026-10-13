@@ -2,6 +2,11 @@
 
 ## 1.3.0
 
+- Fixed: the workspace, key, policy, guardrail and detector dropdowns showed
+  "[object Object]" for every entry. They now list "Name [id]" strings, and the
+  actions accept either that form or a bare id, so existing playbooks that pass
+  an id keep working.
+
 - New operation **Execute API Request**: call any FortiAIGate management API
   endpoint (GET, POST, PUT, PATCH, DELETE) with the configured login, session
   and CSRF handling. A full URL, a `//host` start, a `..` segment or a

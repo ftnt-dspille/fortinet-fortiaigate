@@ -225,32 +225,52 @@ def test_audit_log_filter_options(fake, config):
     assert 'action' in options
 
 
+def _ids(options):
+    return [ops._id_of(o) for o in options]
+
+
+def test_options_are_plain_strings(fake, config):
+    # a {title, value} object renders as "[object Object]" in the step editor
+    for fn in (ops.get_workspace_options, ops.get_virtual_key_options, ops.get_policy_options,
+               ops.get_guardrail_options, ops.get_detector_options):
+        assert all(isinstance(o, str) for o in fn(config, {}))
+
+
 def test_workspace_options_prefer_memberships(fake, config):
     options = ops.get_workspace_options(config, {})
     # me/workspaces (Default) takes precedence over the org-wide list
-    assert options == [{'title': 'Default', 'value': 'ws-1'}]
+    assert options == ['Default [ws-1]']
 
 
 def test_virtual_key_options_carry_status(fake, config):
     options = ops.get_virtual_key_options(config, {})
-    titles = dict((o['value'], o['title']) for o in options)
-    assert 'k-2' in titles and '(revoked)' in titles['k-2']
-    assert 'k-1' in titles
+    by_id = dict(zip(_ids(options), options))
+    assert 'k-2' in by_id and '(revoked)' in by_id['k-2']
+    assert 'k-1' in by_id
 
 
 def test_policy_and_guardrail_options(fake, config):
     policies = ops.get_policy_options(config, {})
     guardrails = ops.get_guardrail_options(config, {})
-    assert [o['value'] for o in policies] == ['pol-1', 'pol-2']
-    assert 'dlp (pending)' in [o['title'] for o in policies]
-    assert sorted(o['value'] for o in guardrails) == ['gr-1', 'gr-2']
+    assert _ids(policies) == ['pol-1', 'pol-2']
+    assert any(o.startswith('dlp (pending)') for o in policies)
+    assert sorted(_ids(guardrails)) == ['gr-1', 'gr-2']
 
 
 def test_detector_options_builtin_then_custom(fake, config):
     options = ops.get_detector_options(config, {})
-    assert [o['value'] for o in options] == ['owasp-agentic-top-10', 'gdpr', 'cut-1']
-    assert 'built-in' in options[0]['title']
-    assert 'workspace' in options[2]['title']
+    assert _ids(options) == ['owasp-agentic-top-10', 'gdpr', 'cut-1']
+    assert 'built-in' in options[0]
+    assert 'workspace' in options[2]
+
+
+def test_a_picked_option_runs_the_action_with_the_bare_id(fake, config):
+    from fortiaigate.connector import FortiAIGate
+    label = ops.get_virtual_key_options(config, {})[0]
+    result = FortiAIGate().execute(config, 'rotate_virtual_key', {'key_id': label})
+    assert result['new_secret'].startswith('faig_rotated_')
+    assert ops.normalize_ids({'policy_ids': ['A [p-1]', 'p-2'], 'key_id': 'k-1'}) == {
+        'policy_ids': ['p-1', 'p-2'], 'key_id': 'k-1'}
 
 
 def test_model_options_from_groups(fake, config):

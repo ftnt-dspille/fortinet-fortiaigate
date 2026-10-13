@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from connectors.core.connector import ConnectorError
@@ -21,6 +22,37 @@ def _client(config):
         data_plane_base=config.get('data_plane_base') or None,
         timeout=config.get('timeout') or 30,
     )
+
+
+# The platform draws a dropdown from a plain list of strings; a {title, value} object
+# renders as "[object Object]". Id-backed options are therefore "Name [id]" strings,
+# and every id parameter accepts that form as well as the bare id.
+_LABELLED = re.compile(r'^.*\[([^\[\]]+)\]\s*$')
+ID_PARAMS = ('workspace_id', 'key_id', 'guardrail_id', 'policy_ids', 'detector_ids')
+
+
+def _label(name, ident, note=None) -> str:
+    return '{0}{1} [{2}]'.format(name, ' ({0})'.format(note) if note else '', ident)
+
+
+def _id_of(value):
+    """The id inside a "Name [id]" dropdown choice, or the value unchanged."""
+    if isinstance(value, str):
+        m = _LABELLED.match(value)
+        if m:
+            return m.group(1).strip()
+    return value
+
+
+def normalize_ids(params) -> dict:
+    out = dict(params or {})
+    for name in ID_PARAMS:
+        v = out.get(name)
+        if isinstance(v, (list, tuple)):
+            out[name] = [_id_of(x) for x in v]
+        elif v is not None:
+            out[name] = _id_of(v)
+    return out
 
 
 def _opt(params, name) -> Optional[str]:
@@ -249,16 +281,16 @@ operations['get_audit_log_filter_options'] = get_audit_log_filter_options
 
 # - dropdown populators ("apiOperation" sources, visible: false) -----------
 # Update step UIs call these with the connector config only and render the
-# result as [{title, value}] dropdown options. Plain string lists are also
-# accepted by the UI; we always return title/value so users see names while
-# playbooks receive stable ids.
+# result as dropdown options. The UI takes a plain list of strings (a
+# {title, value} object shows as "[object Object]"), so id-backed options are
+# "Name [id]" and normalize_ids() strips them back to the id before an action runs.
 
 
 def get_workspace_options(config, params):
     client = _client(config)
     workspaces = client.list_my_workspaces() or client.list_workspaces()
-    return [{'title': w.get('_workspaceName') or w.get('workspaceName'),
-             'value': w.get('_id') or w.get('id')} for w in workspaces]
+    return [_label(w.get('_workspaceName') or w.get('workspaceName'), w.get('_id') or w.get('id'))
+            for w in workspaces]
 
 
 operations['get_workspace_options'] = get_workspace_options
@@ -266,8 +298,7 @@ operations['get_workspace_options'] = get_workspace_options
 
 def get_virtual_key_options(config, params):
     keys = _client(config).list_virtual_keys()
-    return [{'title': '{0} ({1})'.format(k.get('keyName'), k.get('status')),
-             'value': k.get('id')} for k in keys]
+    return [_label(k.get('keyName'), k.get('id'), k.get('status')) for k in keys]
 
 
 operations['get_virtual_key_options'] = get_virtual_key_options
@@ -275,8 +306,7 @@ operations['get_virtual_key_options'] = get_virtual_key_options
 
 def get_policy_options(config, params):
     policies = _client(config).list_policies()
-    return [{'title': '{0} ({1})'.format(p.get('name'), p.get('status')),
-             'value': p.get('id')} for p in policies]
+    return [_label(p.get('name'), p.get('id'), p.get('status')) for p in policies]
 
 
 operations['get_policy_options'] = get_policy_options
@@ -284,8 +314,7 @@ operations['get_policy_options'] = get_policy_options
 
 def get_guardrail_options(config, params):
     guardrails = _client(config).list_guardrails()
-    return [{'title': '{0} ({1})'.format(g.get('name'), g.get('status')),
-             'value': g.get('id')} for g in guardrails]
+    return [_label(g.get('name'), g.get('id'), g.get('status')) for g in guardrails]
 
 
 operations['get_guardrail_options'] = get_guardrail_options
@@ -295,11 +324,9 @@ def get_detector_options(config, params):
     client = _client(config)
     options = []
     for d in client.list_builtin_detectors():
-        options.append({'title': '{0} [built-in]'.format(d['_name']),
-                        'value': d['_id']})
+        options.append(_label(d['_name'], d['_id'], 'built-in'))
     for d in client.list_custom_detectors():
-        options.append({'title': '{0} [workspace]'.format(d['_name']),
-                        'value': d['_id']})
+        options.append(_label(d['_name'], d['_id'], 'workspace'))
     return options
 
 
