@@ -24,34 +24,72 @@ def _client(config):
     )
 
 
-# The platform draws a dropdown from a plain list of strings; a {title, value} object
-# renders as "[object Object]". Id-backed options are therefore "Name [id]" strings,
-# and every id parameter accepts that form as well as the bare id.
-_LABELLED = re.compile(r'^.*\[([^\[\]]+)\]\s*$')
-ID_PARAMS = ('workspace_id', 'key_id', 'guardrail_id', 'policy_ids', 'detector_ids')
+# The platform draws a dropdown from a plain list of strings (a {title, value} object
+# renders as "[object Object]") and hands the action exactly the text that was picked.
+# So the id-backed dropdowns list names, which FortiAIGate keeps unique, and
+# resolve_names() turns a picked name into its id before an action runs. A bare id
+# passes through untouched, so playbooks that supply one keep working.
+_UUID = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
 
 
-def _label(name, ident, note=None) -> str:
-    return '{0}{1} [{2}]'.format(name, ' ({0})'.format(note) if note else '', ident)
+def _workspace_rows(client):
+    return [(w.get('_workspaceName') or w.get('workspaceName'), w.get('_id') or w.get('id'))
+            for w in (client.list_my_workspaces() or client.list_workspaces())]
 
 
-def _id_of(value):
-    """The id inside a "Name [id]" dropdown choice, or the value unchanged."""
-    if isinstance(value, str):
-        m = _LABELLED.match(value)
-        if m:
-            return m.group(1).strip()
-    return value
+def _key_rows(client):
+    return [(k.get('keyName'), k.get('id')) for k in client.list_virtual_keys()]
 
 
-def normalize_ids(params) -> dict:
+def _policy_rows(client):
+    return [(p.get('name'), p.get('id')) for p in client.list_policies()]
+
+
+def _guardrail_rows(client):
+    return [(g.get('name'), g.get('id')) for g in client.list_guardrails()]
+
+
+def _detector_rows(client):
+    return ([(d['_name'], d['_id']) for d in client.list_builtin_detectors()]
+            + [(d['_name'], d['_id']) for d in client.list_custom_detectors()])
+
+
+# parameter -> (what it is, how to list its (name, id) rows)
+NAMED_PARAMS = {
+    'workspace_id': ('workspace', _workspace_rows),
+    'key_id': ('virtual key', _key_rows),
+    'policy_ids': ('policy', _policy_rows),
+    'guardrail_id': ('guardrail', _guardrail_rows),
+    'detector_ids': ('detector', _detector_rows),
+}
+
+
+def _resolve_one(value, kind, rows):
+    if not isinstance(value, str) or value.strip() in ('', 'null') or _UUID.match(value.strip()):
+        return value
+    value = value.strip()
+    if any(ident == value for _, ident in rows):
+        return value
+    ids = [ident for name, ident in rows if name == value]
+    if len(ids) > 1:
+        raise ConnectorError('More than one {0} is named "{1}"; pass its id instead: {2}'.format(
+            kind, value, ', '.join(str(i) for i in ids)))
+    # No match: hand it on as given, so the API's own not-found answer reaches the user.
+    return ids[0] if ids else value
+
+
+def resolve_names(client, params) -> dict:
+    """Replace each picked dropdown name in `params` with the id the API needs."""
     out = dict(params or {})
-    for name in ID_PARAMS:
-        v = out.get(name)
-        if isinstance(v, (list, tuple)):
-            out[name] = [_id_of(x) for x in v]
-        elif v is not None:
-            out[name] = _id_of(v)
+    for name, (kind, lister) in NAMED_PARAMS.items():
+        value = out.get(name)
+        values = value if isinstance(value, (list, tuple)) else [value]
+        if not any(isinstance(v, str) and v.strip() not in ('', 'null') and not _UUID.match(v.strip())
+                   for v in values):
+            continue
+        rows = lister(client)
+        resolved = [_resolve_one(v, kind, rows) for v in values]
+        out[name] = resolved if isinstance(value, (list, tuple)) else resolved[0]
     return out
 
 
@@ -281,53 +319,40 @@ operations['get_audit_log_filter_options'] = get_audit_log_filter_options
 
 # - dropdown populators ("apiOperation" sources, visible: false) -----------
 # Update step UIs call these with the connector config only and render the
-# result as dropdown options. The UI takes a plain list of strings (a
-# {title, value} object shows as "[object Object]"), so id-backed options are
-# "Name [id]" and normalize_ids() strips them back to the id before an action runs.
+# result as dropdown options: a plain list of strings (see resolve_names above).
 
 
 def get_workspace_options(config, params):
     client = _client(config)
-    workspaces = client.list_my_workspaces() or client.list_workspaces()
-    return [_label(w.get('_workspaceName') or w.get('workspaceName'), w.get('_id') or w.get('id'))
-            for w in workspaces]
+    return [name for name, _ in _workspace_rows(client)]
 
 
 operations['get_workspace_options'] = get_workspace_options
 
 
 def get_virtual_key_options(config, params):
-    keys = _client(config).list_virtual_keys()
-    return [_label(k.get('keyName'), k.get('id'), k.get('status')) for k in keys]
+    return [name for name, _ in _key_rows(_client(config))]
 
 
 operations['get_virtual_key_options'] = get_virtual_key_options
 
 
 def get_policy_options(config, params):
-    policies = _client(config).list_policies()
-    return [_label(p.get('name'), p.get('id'), p.get('status')) for p in policies]
+    return [name for name, _ in _policy_rows(_client(config))]
 
 
 operations['get_policy_options'] = get_policy_options
 
 
 def get_guardrail_options(config, params):
-    guardrails = _client(config).list_guardrails()
-    return [_label(g.get('name'), g.get('id'), g.get('status')) for g in guardrails]
+    return [name for name, _ in _guardrail_rows(_client(config))]
 
 
 operations['get_guardrail_options'] = get_guardrail_options
 
 
 def get_detector_options(config, params):
-    client = _client(config)
-    options = []
-    for d in client.list_builtin_detectors():
-        options.append(_label(d['_name'], d['_id'], 'built-in'))
-    for d in client.list_custom_detectors():
-        options.append(_label(d['_name'], d['_id'], 'workspace'))
-    return options
+    return [name for name, _ in _detector_rows(_client(config))]
 
 
 operations['get_detector_options'] = get_detector_options

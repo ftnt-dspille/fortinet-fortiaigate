@@ -20,8 +20,8 @@ configured server.
 Dynamic dropdowns: wherever a parameter takes an identifier or model name
 (workspace, key, policy, guardrail, detector, model), the step editor
 fetches live options through the connector (`apiOperation`) so users pick
-from names (listed as `Name [id]`) while the action receives the bare id; a
-playbook can pass either form. The `get_*_options`
+from names; the connector turns the picked name into the id the API needs when
+the action runs. A playbook can pass a name or a bare id. The `get_*_options`
 operations that feed them are hidden from the palette but callable like any
 other step.
 

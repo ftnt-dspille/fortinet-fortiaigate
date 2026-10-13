@@ -225,52 +225,53 @@ def test_audit_log_filter_options(fake, config):
     assert 'action' in options
 
 
-def _ids(options):
-    return [ops._id_of(o) for o in options]
-
-
-def test_options_are_plain_strings(fake, config):
+def test_options_are_plain_names(fake, config):
     # a {title, value} object renders as "[object Object]" in the step editor
-    for fn in (ops.get_workspace_options, ops.get_virtual_key_options, ops.get_policy_options,
-               ops.get_guardrail_options, ops.get_detector_options):
-        assert all(isinstance(o, str) for o in fn(config, {}))
+    assert ops.get_workspace_options(config, {}) == ['Default']
+    assert ops.get_virtual_key_options(config, {}) == ['alpha', 'beta', 'gamma']
+    assert ops.get_policy_options(config, {}) == ['owasp-guard', 'dlp']
+    assert sorted(ops.get_guardrail_options(config, {})) == ['dlp-guard', 'general-owasp-guardrail']
+    assert ops.get_detector_options(config, {}) == ['OWASP Agentic Top 10', 'GDPR', 'Prompt Injection Detector']
 
 
-def test_workspace_options_prefer_memberships(fake, config):
-    options = ops.get_workspace_options(config, {})
-    # me/workspaces (Default) takes precedence over the org-wide list
-    assert options == ['Default [ws-1]']
-
-
-def test_virtual_key_options_carry_status(fake, config):
-    options = ops.get_virtual_key_options(config, {})
-    by_id = dict(zip(_ids(options), options))
-    assert 'k-2' in by_id and '(revoked)' in by_id['k-2']
-    assert 'k-1' in by_id
-
-
-def test_policy_and_guardrail_options(fake, config):
-    policies = ops.get_policy_options(config, {})
-    guardrails = ops.get_guardrail_options(config, {})
-    assert _ids(policies) == ['pol-1', 'pol-2']
-    assert any(o.startswith('dlp (pending)') for o in policies)
-    assert sorted(_ids(guardrails)) == ['gr-1', 'gr-2']
-
-
-def test_detector_options_builtin_then_custom(fake, config):
-    options = ops.get_detector_options(config, {})
-    assert _ids(options) == ['owasp-agentic-top-10', 'gdpr', 'cut-1']
-    assert 'built-in' in options[0]
-    assert 'workspace' in options[2]
-
-
-def test_a_picked_option_runs_the_action_with_the_bare_id(fake, config):
+def test_a_picked_name_runs_the_action_with_its_id(fake, config):
     from fortiaigate.connector import FortiAIGate
-    label = ops.get_virtual_key_options(config, {})[0]
-    result = FortiAIGate().execute(config, 'rotate_virtual_key', {'key_id': label})
+    result = FortiAIGate().execute(config, 'rotate_virtual_key', {'key_id': 'alpha'})
+    # the gateway rotated record k-1, so the name "alpha" reached it as the id
+    assert result['id'] == 'k-1'
     assert result['new_secret'].startswith('faig_rotated_')
-    assert ops.normalize_ids({'policy_ids': ['A [p-1]', 'p-2'], 'key_id': 'k-1'}) == {
-        'policy_ids': ['p-1', 'p-2'], 'key_id': 'k-1'}
+
+
+def test_resolve_names_covers_every_dropdown(fake, config):
+    client = ops._client(config)
+    out = ops.resolve_names(client, {'workspace_id': 'Default', 'key_id': 'beta', 'guardrail_id': 'dlp-guard',
+                                     'policy_ids': ['dlp', 'pol-1'], 'detector_ids': ['GDPR', 'cut-1']})
+    assert out == {'workspace_id': 'ws-1', 'key_id': 'k-2', 'guardrail_id': 'gr-2',
+                   'policy_ids': ['pol-2', 'pol-1'], 'detector_ids': ['gdpr', 'cut-1']}
+
+
+def test_bare_ids_pass_through_without_a_lookup(fake, config):
+    client = ops._client(config)
+    uuid = '9f8e7d6c-5b4a-3928-1706-f1e2d3c4b5a6'
+
+    def no_lookup(self):
+        raise AssertionError('listed keys for a bare id')
+
+    client.list_virtual_keys = no_lookup.__get__(client)
+    assert ops.resolve_names(client, {'key_id': uuid, 'workspace_id': '', 'policy_ids': None})['key_id'] == uuid
+
+
+def test_unknown_name_is_passed_on_for_the_api_to_report(fake, config):
+    client = ops._client(config)
+    assert ops.resolve_names(client, {'key_id': 'no-such-key'})['key_id'] == 'no-such-key'
+
+
+def test_duplicate_names_are_an_error(fake, config, monkeypatch):
+    from fortiaigate.connections import ConnectorError
+    monkeypatch.setattr(ops, '_key_rows', lambda c: [('twin', 'a-1'), ('twin', 'a-2')])
+    monkeypatch.setitem(ops.NAMED_PARAMS, 'key_id', ('virtual key', ops._key_rows))
+    with pytest.raises(ConnectorError, match='pass its id'):
+        ops.resolve_names(ops._client(config), {'key_id': 'twin'})
 
 
 def test_model_options_from_groups(fake, config):
