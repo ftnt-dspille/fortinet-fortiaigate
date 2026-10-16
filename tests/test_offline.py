@@ -728,3 +728,20 @@ def test_create_prefers_an_explicit_expiry_and_sends_no_access_when_none_given(f
                                     'expires_at': '2030-01-01T00:00:00.000Z', 'expires_in_days': '7'})
     assert fake.last_create_body['expiresAt'] == '2030-01-01T00:00:00.000Z'
     assert 'providerAccess' not in fake.last_create_body
+
+
+@pytest.mark.parametrize('evil', ['../../admin/workspaces', 'k-1/../../admin', 'x?y=1', 'a#b'])
+def test_an_id_from_playbook_input_cannot_leave_its_path_segment(fake, config, evil):
+    """A key id can come from a Vault metadata tag and a workspace from an API body;
+    neither may steer the admin session to another route."""
+    from fortiaigate.connections import ConnectorError
+    fake.paths.clear()
+    with pytest.raises(ConnectorError):
+        ops.renew_virtual_key(config, {'key_id': evil})
+    try:
+        ops.create_virtual_key(config, {'workspace_id': evil, 'key_name': 'k', 'provider_ids': 'openai'})
+    except ConnectorError:
+        pass
+    sent = [p for _, p in fake.paths]
+    assert any('%2F' in p or '%3F' in p or '%23' in p for p in sent), sent
+    assert all(p.count('/') <= 6 and '..' not in p.split('/') for p in sent), sent

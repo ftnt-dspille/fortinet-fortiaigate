@@ -1,5 +1,15 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.1
+
+- Every id put into an API path (key, workspace, policy, guardrail, detector) is
+  URL-encoded. Ids now reach paths from playbook input - a Vault metadata tag, an
+  onboarding API body - and a value such as `../../admin/...` could otherwise
+  steer the connector's session to another route.
+- **Onboard FortiAIGate Key to Vault** refuses a `secret_path` containing `..`
+  (`secret_path_not_allowed`).
+- README: who may write the Vault tags, and who may call the onboarding route.
+
 ## 1.6.0
 
 - New operation **List Expiring Virtual Keys**: keys that expire within

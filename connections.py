@@ -64,6 +64,14 @@ def key_id_from_secret(api_key: str) -> str:
     return '-'.join((bare[:8], bare[8:12], bare[12:16], bare[16:20], bare[20:]))
 
 
+def _seg(value) -> str:
+    """One URL path segment. Ids reach paths from playbook input (an API body, a
+    Vault metadata tag), so '/' and '..' must not be able to steer the admin
+    session to another route."""
+    from urllib.parse import quote
+    return quote(str(value), safe='')
+
+
 def normalize_server(server: str) -> str:
     server = (server or '').strip().rstrip('/')
     if not server:
@@ -518,7 +526,7 @@ class FaigClient:
         resource in a workspace (``workspace_id`` or the default one)."""
         if self.org_scope:
             return '/api/v1/admin/' + suffix
-        return '/api/v1/workspaces/{0}/{1}'.format(workspace_id or self.default_workspace(), suffix)
+        return '/api/v1/workspaces/{0}/{1}'.format(_seg(workspace_id or self.default_workspace()), suffix)
 
     # - management API ------------------------------------------------------
 
@@ -553,7 +561,7 @@ class FaigClient:
         return result
 
     def get_virtual_key(self, key_id: str) -> dict:
-        data = self._call('GET', self._path('virtual-keys/{0}'.format(key_id)))
+        data = self._call('GET', self._path('virtual-keys/{0}'.format(_seg(key_id))))
         record = data.get('key', data) if isinstance(data, dict) else {}
         if not isinstance(record, dict) or 'id' not in record:
             raise ConnectorError(
@@ -585,7 +593,7 @@ class FaigClient:
         if not ws:
             raise ConnectorError('Workspace ID is required to create a key')
         return self._with_secret(
-            self._call('POST', '/api/v1/workspaces/{0}/virtual-keys'.format(ws), body))
+            self._call('POST', '/api/v1/workspaces/{0}/virtual-keys'.format(_seg(ws)), body))
 
     @staticmethod
     def _with_secret(data):
@@ -609,7 +617,7 @@ class FaigClient:
         ``updatedAt``, and to policies sent as objects). ``policy_ids``
         REPLACES the key's own policies; org-assigned ones are always sent
         back, since leaving one out reads as detaching it (org admin only)."""
-        current = self._call('GET', self._path('virtual-keys/{0}'.format(key_id)))
+        current = self._call('GET', self._path('virtual-keys/{0}'.format(_seg(key_id))))
         record = current.get('key', current) if isinstance(current, dict) else {}
         body = {k: record[k] for k in KEY_WRITABLE if k in record}
         policies = record.get('policyIds') or []
@@ -621,15 +629,15 @@ class FaigClient:
         if policy_ids:
             org = [str(p['id']) for p in policies if isinstance(p, dict) and p.get('assignedByOrg')]
             body['policyIds'] = list(dict.fromkeys(org + [str(p) for p in policy_ids]))
-        return self._call('PUT', self._path('virtual-keys/{0}'.format(key_id)), body)
+        return self._call('PUT', self._path('virtual-keys/{0}'.format(_seg(key_id))), body)
 
     def rotate_virtual_key(self, key_id: str) -> dict:
         return self._with_secret(
-            self._call('POST', self._path('virtual-keys/{0}/rotate'.format(key_id))))
+            self._call('POST', self._path('virtual-keys/{0}/rotate'.format(_seg(key_id)))))
 
     def revoke_virtual_key(self, key_id: str, reason: str = 'Revoked from FortiSOAR') -> dict:
         # The gateway rejects a revoke without a reason ("expected required property reason").
-        return self._call('POST', self._path('virtual-keys/{0}/revoke'.format(key_id)),
+        return self._call('POST', self._path('virtual-keys/{0}/revoke'.format(_seg(key_id))),
                           json_body={'reason': reason})
 
     # - data plane ---------------------------------------------------------
@@ -670,13 +678,13 @@ class FaigClient:
         policies = records if isinstance(records, list) else records.get('items', [])
         if workspace_id:
             scoped = self._call(
-                'GET', '/api/v1/workspaces/{0}/policies'.format(workspace_id))
+                'GET', '/api/v1/workspaces/{0}/policies'.format(_seg(workspace_id)))
             if isinstance(scoped, list):
                 policies = policies + scoped
         return [Policy.from_api(p).to_dict() for p in policies]
 
     def get_policy(self, policy_id: str) -> dict:
-        data = self._call('GET', self._path('policies/{0}'.format(policy_id)))
+        data = self._call('GET', self._path('policies/{0}'.format(_seg(policy_id))))
         record = data.get('policy', data) if isinstance(data, dict) else {}
         if 'id' not in record:
             raise ConnectorError(
@@ -689,7 +697,7 @@ class FaigClient:
         return [Guardrail.from_api(g).to_dict() for g in guardrails]
 
     def get_guardrail(self, guardrail_id: str) -> dict:
-        data = self._call('GET', self._path('guardrails/{0}'.format(guardrail_id)))
+        data = self._call('GET', self._path('guardrails/{0}'.format(_seg(guardrail_id))))
         record = data.get('guardrail', data) if isinstance(data, dict) else {}
         if 'id' not in record:
             raise ConnectorError(
@@ -732,7 +740,7 @@ class FaigClient:
                                 'details': 'built-in detector: no offline test on this FortiAIGate; '
                                            'send the text through the gateway (Chat Completion)'})
                 continue
-            one = self._call('POST', self._path('detectors/{0}/test'.format(detector_id)),
+            one = self._call('POST', self._path('detectors/{0}/test'.format(_seg(detector_id))),
                              {'input': input_text})
             results.append(dict(one, detectorId=detector_id, status='tested'))
         verdicts = [r.get('finalDisposition') for r in results if r.get('matched')]
@@ -771,10 +779,10 @@ class FaigClient:
         return [ModelGroup.from_api(g).to_dict() for g in items]
 
     def get_workspace_budget(self, workspace_id: str) -> dict:
-        data = self._call('GET', '/api/v1/workspaces/{0}/budget'.format(workspace_id))
+        data = self._call('GET', '/api/v1/workspaces/{0}/budget'.format(_seg(workspace_id)))
         if not isinstance(data, dict):
             raise ConnectorError(
-                'Unexpected budget response for {0}'.format(workspace_id))
+                'Unexpected budget response for {0}'.format(_seg(workspace_id)))
         return dict(data, workspaceId=workspace_id)
 
     def list_audit_logs(self, offset: int = 0, limit: int = 25) -> dict:

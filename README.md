@@ -95,6 +95,15 @@ What has to be in place:
 - Every secret tagged with `faig_key_id`. Onboarding does this; tag secrets
   that already exist once, as an administrator (it is the only step that has to
   read a secret).
+- Only SOAR and Vault administrators may write metadata under the folder. The
+  `faig_key_id` tag is the only link from a key to its secret, so whoever can
+  tag a secret can have another key's new secret written into it. App teams
+  need read on their own secret's data, nothing on metadata.
+- Who may call the onboarding route: it is token-authenticated, so it runs as
+  the calling FortiSOAR user or API key. Give that permission to the systems
+  that onboard apps (a pipeline, an ITSM integration) only. The playbook
+  refuses a `secret_path` containing `..`, and the Vault policy keeps writes
+  inside the folder.
 - Apps that pick up a changed secret by themselves (a Vault Agent template, a
   watcher). The old secret stops working the moment the key is rotated.
 

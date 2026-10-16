@@ -349,9 +349,9 @@ playbooks:
         type: decision
         conditions:
           - display: Path is free
-            when: "{{ vars.secret_path and not vars.steps.CheckPathFree.data.exists }}"
+            when: "{{ vars.secret_path and '..' not in vars.secret_path.split('/') and not vars.steps.CheckPathFree.data.exists }}"
             next: CreateKey
-          - display: Path in use (or none given)
+          - display: Path in use, missing or not allowed
             default: true
             next: PathInUse
 
@@ -432,7 +432,7 @@ playbooks:
           secret_path: '{{ vars.secret_path }}'
           key_id: ''
           expires_at: ''
-          outcome: "{{ 'path_in_use' if vars.secret_path else 'secret_path_required' }}"
+          outcome: "{{ 'secret_path_required' if not vars.secret_path else ('secret_path_not_allowed' if '..' in vars.secret_path.split('/') else 'path_in_use') }}"
 
       - name: WriteFailed
         type: set_variable

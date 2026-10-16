@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.6.0",
+      "name": "Sample - Fortinet FortiAIGate - 1.6.1",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -35,7 +35,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792190180,
+          "lastModifyDate": 1792191188,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/5d3f346c-4857-565d-98e3-6bef350559b9",
@@ -114,7 +114,7 @@
                   "within_days": "{{ vars.within_days }}",
                   "include_expired": true
                 },
-                "version": "1.6.0",
+                "version": "1.6.1",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "List Expiring Virtual Keys",
                 "step_variables": [],
@@ -433,7 +433,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792190180,
+          "lastModifyDate": 1792191188,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/e02e815a-71cd-54d1-a90c-852dfcdca883",
@@ -486,7 +486,7 @@
                   "expires_in_days": "{{ vars.extend_days }}"
                 },
                 "ignore_errors": true,
-                "version": "1.6.0",
+                "version": "1.6.1",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Renew Virtual Key",
                 "step_variables": [],
@@ -617,7 +617,7 @@
                 "params": {
                   "api_key": "{{ vars.steps.RenewKey.data.new_secret }}"
                 },
-                "version": "1.6.0",
+                "version": "1.6.1",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -851,7 +851,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792190180,
+          "lastModifyDate": 1792191188,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/2553cfca-e72e-509a-b1ca-68f625096293",
@@ -937,12 +937,12 @@
                 "conditions": [
                   {
                     "option": "Path is free",
-                    "condition": "{{ vars.secret_path and not vars.steps.CheckPathFree.data.exists }}",
+                    "condition": "{{ vars.secret_path and '..' not in vars.secret_path.split('/') and not vars.steps.CheckPathFree.data.exists }}",
                     "step_iri": "/api/3/workflow_steps/df3bb51c-c3c7-5b55-a004-4551be91c2ba",
                     "step_name": "CreateKey"
                   },
                   {
-                    "option": "Path in use (or none given)",
+                    "option": "Path in use, missing or not allowed",
                     "default": true,
                     "step_iri": "/api/3/workflow_steps/a9978877-09fe-5c7a-814d-f49b6c1a030d",
                     "step_name": "PathInUse"
@@ -973,7 +973,7 @@
                   "rpm": "",
                   "provider_ids": "{{ vars.providers }}"
                 },
-                "version": "1.6.0",
+                "version": "1.6.1",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Create Virtual Key",
                 "step_variables": [],
@@ -1052,7 +1052,7 @@
                   "key_id": "{{ vars.steps.CreateKey.data.id }}",
                   "reason": "Onboarding failed: the secret could not be stored in Vault"
                 },
-                "version": "1.6.0",
+                "version": "1.6.1",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Revoke Virtual Key",
                 "step_variables": [],
@@ -1101,7 +1101,7 @@
                 "params": {
                   "api_key": "{{ vars.steps.CreateKey.data.new_secret }}"
                 },
-                "version": "1.6.0",
+                "version": "1.6.1",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -1123,7 +1123,7 @@
                 "secret_path": "{{ vars.secret_path }}",
                 "key_id": "",
                 "expires_at": "",
-                "outcome": "{{ 'path_in_use' if vars.secret_path else 'secret_path_required' }}"
+                "outcome": "{{ 'secret_path_required' if not vars.secret_path else ('secret_path_not_allowed' if '..' in vars.secret_path.split('/') else 'path_in_use') }}"
               },
               "status": null,
               "top": "640",
@@ -1215,10 +1215,10 @@
               "name": "PathFree -> PathInUse",
               "targetStep": "/api/3/workflow_steps/a9978877-09fe-5c7a-814d-f49b6c1a030d",
               "sourceStep": "/api/3/workflow_steps/350de9f3-2e47-5d3e-8556-46c69e1e02e7",
-              "label": "Path in use (or none given)",
+              "label": "Path in use, missing or not allowed",
               "isExecuted": false,
               "group": null,
-              "uuid": "0245e517-31cc-5624-b603-d4059f7587d3"
+              "uuid": "29f25827-a97a-5a3d-b8ea-59f1434c057c"
             },
             {
               "@type": "WorkflowRoute",
