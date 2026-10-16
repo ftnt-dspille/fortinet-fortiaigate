@@ -1,5 +1,25 @@
 # fortinet-fortiaigate release notes
 
+## 1.4.0
+
+- **Works with a workspace login.** The connector reads the login's role (`GET /api/v1/user`).
+  An organization administrator keeps the `/api/v1/admin` API and sees every workspace. Any
+  other login (a workspace admin or member) is detected automatically and works in its own
+  workspace through `/api/v1/workspaces/<id>`. That covers virtual keys (list, get, create,
+  update, rotate, replace, revoke), guardrails and guardrail tests, policies, detectors,
+  budget and audit logs. Before 1.4.0 such a login could only list its workspaces; every
+  other action failed with HTTP 403 "Organization-level access required".
+- New optional configuration field **Workspace** (name or id). A login with one workspace
+  uses it without being told. A login with several uses the configured one, or the
+  workspace an action names. The health check fails if the login is not a member of the
+  configured workspace.
+- **Create Virtual Key** and **Get Workspace Budget** no longer require a workspace for a
+  workspace login.
+- Actions that need an organization administrator (List AI Providers, admin paths in
+  Execute API Request) now say so and name the login, instead of a bare 403.
+- One action logs in and looks up the role and workspace once, not once for the dropdown
+  names and again for the call.
+
 ## 1.3.4
 
 - **Replace Virtual Key** now fails closed. A revoked key is shut off on purpose, so it is

@@ -73,6 +73,11 @@ class FakeState:
         self.username = 'admin@example.com'
         self.password = 'correct-password'
         self.session_valid = False
+        # 'org_admin' may call /api/v1/admin/*; any other role gets 403 there and works
+        # through /api/v1/workspaces/<id>/* for the workspaces in `memberships`.
+        self.role = 'org_admin'
+        self.memberships = ['ws-1']
+        self.paths = []
         self.workspaces = [
             {'id': 'ws-1', 'workspaceName': 'Default', 'memberCount': 1},
             {'id': 'ws-2', 'workspaceName': 'Research', 'memberCount': 2},
@@ -116,6 +121,8 @@ class FakeState:
         self.custom_detectors = [
             {'uuid': 'cut-1', 'name': 'Prompt Injection Detector', 'scope': 'workspace',
              'engine': 'rules', 'action': 'block', 'approvalStatus': 'approved'},
+            {'uuid': 'dc18b94d-a99f-4bd0-b32b-2bd77c3a0cbe', 'name': 'Dark Side', 'scope': 'workspace',
+             'engine': 'ai', 'action': 'block', 'approvalStatus': 'approved'},
         ]
         self.builtin_detectors = [
             {'id': 'owasp-agentic-top-10', 'name': 'OWASP Agentic Top 10',
@@ -171,7 +178,38 @@ class Handler(BaseHTTPRequestHandler):
     def _sessioned(self):
         return STATE.session_valid
 
+    # Workspace resources served from the same data as their /api/v1/admin twins.
+    WS_RESOURCES = ('virtual-keys', 'guardrails', 'policies', 'detectors',
+                    'built-in-detectors', 'audit-logs', 'model-groups')
+
+    def _scoped(self):
+        """Apply the login's scope; True when a response was already sent."""
+        STATE.paths.append((self.command, self.path.split('?')[0]))
+        self.workspace = None
+        if self.path == '/api/v1/user' and self.command == 'GET':
+            if not self._sessioned():
+                self._send(401, {'error': 'no session'})
+            else:
+                self._send(200, {'id': 'u-1', 'username': STATE.username, 'role': STATE.role,
+                                 'memberships': [{'workspaceId': w, 'role': STATE.role}
+                                                 for w in STATE.memberships]})
+            return True
+        if self.path.startswith('/api/v1/admin/') and STATE.role != 'org_admin' and self._sessioned():
+            self._send(403, {'error': 'Organization-level access required'})
+            return True
+        parts = self.path.split('/')   # '', api, v1, workspaces, <ws>, <resource>, ...
+        if len(parts) > 5 and parts[3] == 'workspaces' and parts[5].split('?')[0] in self.WS_RESOURCES:
+            if self._sessioned() and STATE.role != 'org_admin' and parts[4] not in STATE.memberships:
+                self._send(403, {'error': 'Not a member of this workspace'})
+                return True
+            self.workspace = parts[4]
+            rest = '/'.join(parts[5:])
+            self.path = ('/api/v1/' if rest.startswith('model-groups') else '/api/v1/admin/') + rest
+        return False
+
     def do_POST(self):
+        if self._scoped():
+            return
         if self.path == '/api/v1/login':
             body = self._body()
             if (body.get('username') == STATE.username
@@ -212,7 +250,7 @@ class Handler(BaseHTTPRequestHandler):
             STATE.last_create_body = body
             record = {'id': new_id, 'keyName': body.get('keyName', ''),
                       'status': 'active', 'expiresAt': body.get('expiresAt'),
-                      'workspace': {'id': body.get('workspaceId')},
+                      'workspace': {'id': body.get('workspaceId') or self.workspace},
                       'createdAt': '2026-10-13T00:00:00.000Z',
                       'tpm': body.get('tpm'), 'rpm': body.get('rpm'),
                       'keyPreview': 'faig-' + new_id[:4]}
@@ -229,6 +267,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, {'id': key_id,
                              'secretKey': 'faig_rotated_' + uuid.uuid4().hex[:12]})
+            return
+        if self.path == '/api/v1/admin/guardrails/test' and self.workspace:
+            # 8.0.2 has no guardrail tester on the workspace path
+            self._send(405, {'error': 'Method Not Allowed'})
+            return
+        detector_id = self._key_id_from('/api/v1/admin/detectors/', '/test')
+        if detector_id:
+            if not any(d['uuid'] == detector_id for d in STATE.custom_detectors):
+                self._send(404, {'error': 'detector not found'})
+                return
+            matched = 'dark side' in self._body().get('input', '').lower()
+            self._send(200, {'matched': matched, 'finalDisposition': 'block' if matched else None,
+                             'score': 0.97 if matched else 0.0, 'details': '', 'spans': []})
             return
         if self.path == '/api/v1/admin/guardrails/test':
             body = self._body()
@@ -272,6 +323,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {'error': 'not found'})
 
     def do_DELETE(self):
+        if self._scoped():
+            return
         if not self._sessioned():
             self._send(401, {'error': 'no session'})
             return
@@ -286,6 +339,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {'error': 'not found'})
 
     def do_GET(self):
+        if self._scoped():
+            return
         if self.path == '/api/csrf-token':
             if not self._sessioned():
                 self._send(401, {'error': 'no session'})
@@ -300,7 +355,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == '/api/v1/me/workspaces':
             if self._sessioned():
-                self._send(200, STATE.workspaces[:1])
+                self._send(200, [w for w in STATE.workspaces if w['id'] in STATE.memberships])
             else:
                 self._send(401, {'error': 'no session'})
             return
@@ -415,6 +470,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {'error': 'not found'})
 
     def do_PUT(self):
+        if self._scoped():
+            return
         if not self._sessioned():
             self._send(401, {'error': 'no session'})
             return
@@ -476,4 +533,5 @@ def make_client(config, **overrides):
         verify_ssl=merged.get('verify_ssl', False),
         data_plane_base=merged.get('data_plane_base') or None,
         timeout=merged.get('timeout') or 30,
+        workspace=merged.get('workspace') or None,
     )

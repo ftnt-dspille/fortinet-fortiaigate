@@ -14,6 +14,10 @@ operations = {}
 
 
 def _client(config):
+    # One execute() shares one client (connector.py), so the login, its role and its
+    # workspace are looked up once per action, not once for the names and again for the call.
+    if config.get('_faig_client') is not None:
+        return config['_faig_client']
     return FaigClient(
         server=config['server'],
         username=config['username'],
@@ -21,6 +25,7 @@ def _client(config):
         verify_ssl=config.get('verify_ssl', True),
         data_plane_base=config.get('data_plane_base') or None,
         timeout=config.get('timeout') or 30,
+        workspace=config.get('workspace') or None,
     )
 
 
@@ -155,10 +160,11 @@ operations['get_virtual_key'] = get_virtual_key
 
 
 def create_virtual_key(config, params):
-    if not params.get('workspace_id') or not params.get('key_name'):
+    client = _client(config)
+    if not params.get('key_name') or (client.org_scope and not params.get('workspace_id')):
         raise ValueError('workspace_id and key_name are required')
-    return _client(config).create_virtual_key(
-        workspace_id=params['workspace_id'],
+    return client.create_virtual_key(
+        workspace_id=_opt(params, 'workspace_id'),
         key_name=params['key_name'],
         expires_at=_opt(params, 'expires_at'),
         tpm=_opt(params, 'tpm'),
@@ -390,9 +396,13 @@ operations['list_ai_providers'] = list_ai_providers
 
 
 def get_workspace_budget(config, params):
-    if not params.get('workspace_id'):
-        raise ValueError('workspace_id is required')
-    return _client(config).get_workspace_budget(params['workspace_id'])
+    client = _client(config)
+    workspace_id = _opt(params, 'workspace_id')
+    if not workspace_id:
+        if client.org_scope:
+            raise ValueError('workspace_id is required')
+        workspace_id = client.default_workspace()
+    return client.get_workspace_budget(workspace_id)
 
 
 operations['get_workspace_budget'] = get_workspace_budget
