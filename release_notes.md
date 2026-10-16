@@ -35,7 +35,9 @@
   request's uuid): `name` "FortiAIGate blocked a prompt from <key name>: <reason>", `source`
   "Fortinet FortiAIGate", `description` (the prompt and the detectors), `severity` High,
   `alertDetectionDate` (the request time in epoch seconds), and `sourcedata` (the whole
-  request as JSON). Nothing else is mapped. The watermark (`LastPullTime` macro) is written
+  request as JSON). `owners` is the connector configuration's teams (each record's
+  `ownerTeams`), so a configuration Private to a team ingests alerts that team can read.
+  Nothing else is mapped. The watermark (`LastPullTime` macro) is written
   after the alerts; the window ends 60 seconds behind the clock. Two configuration fields:
   **Initial Backfill Range** (default 24h) and **Maximum Requests Per Run** (default 500).
 - **Sample playbook Heal Expired FortiAIGate Key in Vault** is kept; it reads the renewed

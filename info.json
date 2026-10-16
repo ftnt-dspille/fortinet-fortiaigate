@@ -1112,6 +1112,12 @@
                 "string",
                 "null"
               ]
+            },
+            "ownerTeams": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }

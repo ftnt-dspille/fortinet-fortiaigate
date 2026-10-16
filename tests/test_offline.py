@@ -555,6 +555,52 @@ def test_blocked_record_shape(fake, config):
     assert alpha['ownerName'] == 'Alice Admin' and alpha['ownerEmail'] == 'alice@example.com'
 
 
+def _crudhub(monkeypatch, answer):
+    """Stand in for FortiSOAR's integrations.crudhub (the connector reads its own
+    configuration's teams through it)."""
+    import types
+    calls = []
+
+    def make_request(url, method, *a, **kw):
+        calls.append((url, method))
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    pkg = types.ModuleType('integrations')
+    mod = types.ModuleType('integrations.crudhub')
+    mod.make_request = make_request
+    pkg.crudhub = mod
+    monkeypatch.setitem(sys.modules, 'integrations', pkg)
+    monkeypatch.setitem(sys.modules, 'integrations.crudhub', mod)
+    return calls
+
+
+def test_blocked_records_carry_the_configuration_teams_as_owners(fake, config, monkeypatch):
+    calls = _crudhub(monkeypatch, {'teams': ['3bf19b63-b22c-4756-9d8c-e322e110f1f7'],
+                                   'config': {'password': 'enc'}})
+    records = run({**config, 'config_id': 'cfg-1'}, 'get_blocked_traffic',
+                  {'since': '2026-10-15T10:00:00Z'})
+    assert calls == [('/api/integration/configuration/cfg-1/', 'GET')]
+    assert {tuple(r['ownerTeams']) for r in records} == {
+        ('/api/3/teams/3bf19b63-b22c-4756-9d8c-e322e110f1f7',)}
+    assert 'enc' not in json.dumps(records)
+
+
+@pytest.mark.parametrize('answer', [{'teams': []}, RuntimeError('no crudhub'), None])
+def test_blocked_records_have_no_owners_for_a_shared_or_unreadable_configuration(
+        fake, config, monkeypatch, answer):
+    _crudhub(monkeypatch, answer)
+    records = run({**config, 'config_id': 'cfg-1'}, 'get_blocked_traffic',
+                  {'since': '2026-10-15T10:00:00Z'})
+    assert records and all(r['ownerTeams'] == [] for r in records)
+
+
+def test_blocked_records_without_a_config_id_skip_the_lookup(fake, config, monkeypatch):
+    calls = _crudhub(monkeypatch, {'teams': ['x']})
+    records = run(config, 'get_blocked_traffic', {'since': '2026-10-15T10:00:00Z'})
+    assert calls == [] and all(r['ownerTeams'] == [] for r in records)
+
+
 def test_since_as_epoch_milliseconds_and_as_an_iso_time_agree(fake, config):
     expected = _epoch_ms('2026-10-15T10:02:00Z')
     run(config, 'get_blocked_traffic', {'since': '2026-10-15T10:02:00Z'})
@@ -686,7 +732,8 @@ def test_create_record_upserts_each_blocked_request_on_its_uuid():
     resource = dict(args['resource'])
     resource.pop('__replace')
     assert set(resource) == {'name', 'source', 'sourceId', 'severity', 'alertDetectionDate',
-                             'description', 'sourcedata'}
+                             'description', 'sourcedata', 'owners'}
+    assert resource['owners'] == '{{ vars.item.ownerTeams or [] }}'
     assert resource['sourceId'] == '{{ vars.item.uuid }}'
     assert resource['source'] == 'Fortinet FortiAIGate'
     assert resource['sourcedata'] == '{{ vars.item | toJSON }}'

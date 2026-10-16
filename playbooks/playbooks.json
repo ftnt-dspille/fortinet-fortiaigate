@@ -39,7 +39,7 @@
             "key_field"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792179763,
+          "lastModifyDate": 1792186724,
           "collection": "/api/3/workflow_collections/d4e2e1f3-9b91-50e3-91ed-15e0e5babce8",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/22955c8b-50a9-5dfb-940d-7e9e32349776",
@@ -595,7 +595,7 @@
             "overrideIfNoMatch"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792179763,
+          "lastModifyDate": 1792186724,
           "collection": "/api/3/workflow_collections/d4e2e1f3-9b91-50e3-91ed-15e0e5babce8",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/1ba59727-0b6a-5ca8-8115-3eb5b9ce09d5",
@@ -816,7 +816,7 @@
           "remoteExecutableFlag": 0,
           "parameters": [],
           "synchronous": false,
-          "lastModifyDate": 1792179763,
+          "lastModifyDate": 1792186724,
           "collection": "/api/3/workflow_collections/d4e2e1f3-9b91-50e3-91ed-15e0e5babce8",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/3a810b9e-c7b1-5d86-ac1d-78b4b05a0e43",
@@ -1122,7 +1122,7 @@
           "remoteExecutableFlag": 0,
           "parameters": [],
           "synchronous": false,
-          "lastModifyDate": 1792179763,
+          "lastModifyDate": 1792186724,
           "collection": "/api/3/workflow_collections/d4e2e1f3-9b91-50e3-91ed-15e0e5babce8",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/c1c3f7db-796e-5f39-9274-e6520c525181",
@@ -1257,6 +1257,7 @@
                   "alertDetectionDate": "{{ vars.item.timeStamp // 1000 }}",
                   "description": "{{ vars.item.prompt | e }}\n\nDetectors: {% for d in vars.item.detectors %}{{ d.name | e }} ({{ d.side | e }}: {{ d.details | e }}){% if not loop.last %}; {% endif %}{% else %}none recorded{% endfor %}",
                   "sourcedata": "{{ vars.item | toJSON }}",
+                  "owners": "{{ vars.item.ownerTeams or [] }}",
                   "__replace": "true"
                 },
                 "collection": "/api/3/upsert/alerts",

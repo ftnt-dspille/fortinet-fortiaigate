@@ -60,8 +60,16 @@ Alert mapping (`Create Record`, upserted on `sourceId`):
 | `severity` | `High` (a picklist value, `"Severity" \| picklist("High")`) |
 | `alertDetectionDate` | the request time, epoch seconds |
 | `sourcedata` | the whole blocked request as JSON (`vars.item \| toJSON`) |
+| `owners` | the connector configuration's teams (`ownerTeams`); none for a shared configuration |
 
 No other alert fields are set; everything the gateway recorded is in `sourcedata`.
+
+Ownership: Get Blocked Traffic reads its own configuration's teams through FortiSOAR
+(`config_id`) and returns them on each record as `ownerTeams`. A configuration Private
+to a team therefore ingests alerts that team owns, whoever or whatever runs the
+schedule. Without it the alerts went to the playbook's default team, which a student
+on a Private configuration cannot read. The lookup happens in the connector, not the
+playbook, because the configuration API also returns the encrypted password.
 
 Ingestion needs the connector's sample collection installed and enabled in the Data
 Ingestion wizard, against a FortiSOAR appliance that runs this connector version.

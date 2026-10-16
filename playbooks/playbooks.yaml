@@ -479,6 +479,9 @@ playbooks:
         # The prompt is attacker-controlled and the description is rich text: escape it.
         description: "{{ vars.item.prompt | e }}\n\nDetectors: {% for d in vars.item.detectors %}{{ d.name | e }} ({{ d.side | e }}: {{ d.details | e }}){% if not loop.last %}; {% endif %}{% else %}none recorded{% endfor %}"
         sourcedata: '{{ vars.item | toJSON }}'
+        # The connector configuration's teams (empty when it is shared): a student's
+        # Private configuration makes the alerts the student's, not the default team's.
+        owners: '{{ vars.item.ownerTeams or [] }}'
         __replace: 'true'
       next: Update Last Pull Time
 

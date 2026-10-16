@@ -460,13 +460,35 @@ def get_blocked_traffic(config, params):
     max_items = int(params.get('max_items') or 100)
     if max_items < 1:
         raise ValueError('max_items must be at least 1')
-    return _client(config).blocked_requests(
+    records = _client(config).blocked_requests(
         since=since,
         until=until,
         range=_opt(params, 'range') or '24h',
         max_items=max_items,
         ws_id=_opt(params, 'workspace_id'),
     )
+    teams = _owner_teams(config)
+    for record in records:
+        record['ownerTeams'] = teams
+    return records
+
+
+def _owner_teams(config) -> list:
+    """The team IRIs that own this connector configuration, so the ingestion can make
+    the alerts theirs. Without owners an alert goes to the playbook's default team, which
+    a student on a Private configuration cannot read. Read in the connector, not the
+    playbook: the configuration API also returns the encrypted password, which would
+    land in the run log. Empty when the configuration is shared or the lookup fails."""
+    config_id = config.get('config_id')
+    if not config_id:
+        return []
+    try:
+        from integrations.crudhub import make_request
+        found = make_request('/api/integration/configuration/{0}/'.format(config_id), 'GET')
+    except Exception:  # noqa: BLE001 - ownership is a nicety; never fail the read on it
+        return []
+    teams = found.get('teams') if isinstance(found, dict) else None
+    return ['/api/3/teams/{0}'.format(str(t).rsplit('/', 1)[-1]) for t in teams or [] if t]
 
 
 operations['get_blocked_traffic'] = get_blocked_traffic
