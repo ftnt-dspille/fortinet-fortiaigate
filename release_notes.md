@@ -2,6 +2,10 @@
 
 ## 1.6.0
 
+- **The health check refuses a workspace member login** with a message saying to make the
+  user a workspace admin. FortiAIGate 8.0.2 answers a member 403 on keys, guardrails,
+  policies, detectors and traffic logs, so such a configuration used to pass the health
+  check and then fail every action.
 - **Uses pyfortiaigate.** Every FortiAIGate call goes through the `pyfortiaigate` library
   (`requirements.txt`: `pyfortiaigate>=0.4.0`, installed with the connector; it needs Python
   3.10 or newer). The connector's own HTTP client is gone, and so is its name resolution and

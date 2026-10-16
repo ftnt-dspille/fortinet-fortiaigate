@@ -496,8 +496,17 @@ def _check_health(config):
     client = _client(config)
     try:
         client.me()
-        if not client.org_scope and (config.get('workspace') or len(client.my_workspaces()) == 1):
-            client.default_workspace()
+        mine = [] if client.org_scope else client.my_workspaces()
+        if not client.org_scope and (config.get('workspace') or len(mine) == 1):
+            ws = client.default_workspace()
+            role = next((w.get('membershipRole') for w in mine if str(w.get('id')) == ws), None)
+            if role and role != 'workspace_admin':
+                # Live-verified on 8.0.2: a workspace member gets 403 "Workspace administrator
+                # access required" on keys, guardrails, policies, detectors and traffic logs.
+                raise ConnectorError(
+                    '{0} is a {1} of its workspace. FortiAIGate lets only a workspace admin read '
+                    'keys, guardrails, policies and logs or revoke keys; make this user a workspace '
+                    'admin, or use an organization administrator.'.format(client.me().get('email'), role))
     except (ValueError, *API_ERRORS) as err:
         raise ConnectorError(str(err))
     return 'ok'

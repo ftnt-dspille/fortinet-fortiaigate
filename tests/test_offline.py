@@ -56,6 +56,14 @@ def test_health_checks_the_login(fake, config):
         Connector().check_health(dict(config, password='wrong'))
 
 
+def test_a_workspace_member_login_fails_the_health_check(fake, config):
+    # A member gets 403 on nearly every call (live-verified), so say so at once.
+    _workspace_login(fake)
+    fake.role = 'workspace_member'
+    with pytest.raises(ConnectorError, match='workspace admin'):
+        Connector().check_health(config)
+
+
 def test_every_operation_is_dispatched_and_listed_in_info_json():
     info = json.loads((REPO / 'info.json').read_text())
     listed = {o['operation'] for o in info['operations']}

@@ -18,8 +18,10 @@ configured login. A full URL is refused so the credentials never leave the
 configured server.
 
 A login can be an organization administrator (every workspace) or a workspace admin
-or member (its own workspace). The connector detects which and routes each call;
-set **Workspace** for a login that belongs to several workspaces.
+(its own workspace). The connector detects which and routes each call; set
+**Workspace** for a login that belongs to several workspaces. A workspace **member**
+is refused at the health check: FortiAIGate answers a member 403 ("Workspace
+administrator access required") on keys, guardrails, policies, detectors and logs.
 
 Dynamic dropdowns: wherever a parameter takes an identifier or model name
 (workspace, key, policy, guardrail, detector, model), the step editor fetches live

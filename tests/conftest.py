@@ -415,7 +415,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/v1/me/workspaces":
             if self._sessioned():
-                self._send(200, [w for w in STATE.workspaces if w["id"] in STATE.memberships])
+                # 8.0.2 adds the login's membershipRole to each workspace.
+                self._send(200, [dict(w, membershipRole=STATE.role) for w in STATE.workspaces
+                                 if w["id"] in STATE.memberships])
             else:
                 self._unauthorized()
             return
