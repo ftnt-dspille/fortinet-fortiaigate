@@ -1,5 +1,12 @@
 # fortinet-fortiaigate release notes
 
+## 1.5.1
+
+- **Renew Virtual Key** never leaves an expired key's old secret working. Extending the
+  expiry reactivates the old secret until the rotate replaces it; if the rotate fails, the
+  original expiry is put back (the key is expired again) and, if that fails too, the key is
+  revoked. **Extend By (Days)** must be between 0 and 3650.
+
 ## 1.5.0
 
 - **Renew Virtual Key** replaces **Replace Virtual Key**, and no longer creates a new key.

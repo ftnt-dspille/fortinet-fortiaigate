@@ -460,6 +460,49 @@ def test_renew_takes_the_key_secret(fake, config):
     assert result['method'] == 'extended_and_rotated'
 
 
+def test_a_failed_rotate_puts_the_original_expiry_back(fake, config, monkeypatch):
+    from fortiaigate.connections import ConnectorError, FaigClient
+    _expired_key(fake)
+
+    def boom(self, key_id):
+        raise ConnectorError('rotate failed')
+    monkeypatch.setattr(FaigClient, 'rotate_virtual_key', boom)
+    with pytest.raises(ConnectorError, match='rotate failed'):
+        ops.renew_virtual_key(config, {'key_id': 'old-1'})
+    assert fake.keys['old-1']['expiresAt'] == '2026-01-31T00:00:00.000Z'   # old secret dead again
+    assert fake.last_revoke_body is None
+
+
+def test_a_failed_restore_revokes_the_key(fake, config, monkeypatch):
+    from fortiaigate.connections import ConnectorError, FaigClient
+    _expired_key(fake)
+    real_update = FaigClient.update_virtual_key
+    calls = []
+
+    def update(self, key_id, **kw):
+        calls.append(kw)
+        if len(calls) == 2:
+            raise ConnectorError('restore refused')
+        return real_update(self, key_id, **kw)
+
+    def boom(self, key_id):
+        raise ConnectorError('rotate failed')
+    monkeypatch.setattr(FaigClient, 'update_virtual_key', update)
+    monkeypatch.setattr(FaigClient, 'rotate_virtual_key', boom)
+    with pytest.raises(ConnectorError, match='rotate failed'):
+        ops.renew_virtual_key(config, {'key_id': 'old-1'})
+    assert fake.last_revoke_body['reason'].startswith('Renewal failed')
+
+
+@pytest.mark.parametrize('days', ['0', '-5', '4000'])
+def test_an_out_of_range_lifetime_changes_nothing(fake, config, days):
+    from fortiaigate.connections import ConnectorError
+    _expired_key(fake)
+    with pytest.raises(ConnectorError, match='between 0 and 3650'):
+        ops.renew_virtual_key(config, {'key_id': 'old-1', 'expires_in_days': days})
+    assert fake.last_put_body is None
+
+
 @pytest.mark.parametrize('status', ['revoked', 'suspended'])
 def test_renew_leaves_a_revoked_or_suspended_key_alone(fake, config, status):
     from fortiaigate.connections import ConnectorError

@@ -243,9 +243,23 @@ def renew_virtual_key(config, params):
     new_expiry = None
     if expired:
         days = float(_opt(params, 'expires_in_days') or 30)
+        if not 0 < days <= 3650:
+            raise ConnectorError('Extend By (Days) must be between 0 and 3650, not {0:g}'.format(days))
         new_expiry = (now + timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
         client.update_virtual_key(key_id, expires_at=new_expiry)
-    rotated = client.rotate_virtual_key(key_id)
+    try:
+        rotated = client.rotate_virtual_key(key_id)
+    except Exception:
+        # The extend made the OLD secret work again; never leave it that way. Put the
+        # original expiry back (a past date expires the key again) or, failing that, revoke.
+        if expired:
+            try:
+                if not old.get('expiresAt'):
+                    raise ConnectorError('no original expiry to restore')
+                client.update_virtual_key(key_id, expires_at=old['expiresAt'])
+            except Exception:
+                client.revoke_virtual_key(key_id, 'Renewal failed after the expiry was extended')
+        raise
     return {'method': 'extended_and_rotated' if expired else 'rotated', 'key_id': key_id,
             'old_status': status, 'expires_at': new_expiry or old.get('expiresAt'),
             'new_secret': rotated.get('new_secret'), 'key': rotated}
