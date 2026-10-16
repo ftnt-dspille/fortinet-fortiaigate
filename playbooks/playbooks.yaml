@@ -476,7 +476,8 @@ playbooks:
         sourceId: '{{ vars.item.uuid }}'
         severity: '{{ "Severity" | picklist("High") }}'
         alertDetectionDate: '{{ vars.item.timeStamp // 1000 }}'
-        description: "{{ vars.item.prompt }}\n\nDetectors: {% for d in vars.item.detectors %}{{ d.name }} ({{ d.side }}: {{ d.details }}){% if not loop.last %}; {% endif %}{% else %}none recorded{% endfor %}"
+        # The prompt is attacker-controlled and the description is rich text: escape it.
+        description: "{{ vars.item.prompt | e }}\n\nDetectors: {% for d in vars.item.detectors %}{{ d.name | e }} ({{ d.side | e }}: {{ d.details | e }}){% if not loop.last %}; {% endif %}{% else %}none recorded{% endfor %}"
         sourcedata: '{{ vars.item | toJSON }}'
         __replace: 'true'
       next: Update Last Pull Time

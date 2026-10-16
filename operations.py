@@ -19,7 +19,7 @@ from typing import Optional
 from urllib.parse import unquote, urlparse
 
 from connectors.core.connector import ConnectorError
-from pyfortiaigate import FaigError, FortiAIGate
+from pyfortiaigate import FaigError, FortiAIGate, key_id_from_secret
 
 operations = {}
 
@@ -61,10 +61,15 @@ def _required(params, name) -> str:
 
 def _key_ref(params) -> str:
     """The virtual key to act on: its id or name, else the secret it was issued as."""
-    ref = _opt(params, 'key_id') or _opt(params, 'api_key')
-    if not ref:
+    ref = _opt(params, 'key_id')
+    if ref:
+        return ref
+    secret = _opt(params, 'api_key')
+    if not secret:
         raise ValueError('key_id or api_key is required')
-    return ref
+    # The secret embeds the key id: derive it here so the secret itself never
+    # reaches a name lookup, whose "no key named ..." error would echo it.
+    return key_id_from_secret(secret)
 
 
 def _ids_list(raw) -> list:

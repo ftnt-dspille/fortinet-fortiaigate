@@ -671,3 +671,10 @@ def test_the_watermark_moves_only_after_the_alerts_are_written():
     assert update['arguments']['operation'] == 'updatemacro'
     fetch_routes = {r['name'] for r in _workflow('> FortiAIGate > Fetch')['routes']}
     assert 'Fetch Blocked Requests -> Save Result' in fetch_routes
+
+
+def test_a_bad_secret_is_never_echoed_in_the_error(fake, config):
+    secret = 'sk-pasted-the-wrong-secret-0123456789'
+    with pytest.raises(Exception) as err:
+        run(config, 'rotate_virtual_key', {'api_key': secret})
+    assert secret not in str(err.value)
