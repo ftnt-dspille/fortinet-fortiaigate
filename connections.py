@@ -564,17 +564,39 @@ class FaigClient:
     def create_virtual_key(self, workspace_id: str, key_name: str,
                            expires_at: Optional[str] = None,
                            tpm: Optional[str] = None,
-                           rpm: Optional[str] = None) -> dict:
+                           rpm: Optional[str] = None,
+                           provider_ids: Optional[list] = None) -> dict:
         body: dict = {'keyName': key_name}
-        if self.org_scope:
-            body['workspaceId'] = workspace_id
+        if provider_ids:
+            # 8.0.2 refuses a key with no model access (422 "At least one model or model
+            # group is required"); this grants every model of each provider.
+            body['providerAccess'] = [{'providerId': str(p), 'allKeys': True, 'allModels': True}
+                                      for p in provider_ids]
         if expires_at:
             body['expiresAt'] = expires_at
         if tpm:
             body['tpm'] = tpm
         if rpm:
             body['rpm'] = rpm
-        return self._call('POST', self._path('virtual-keys', workspace_id), body)
+        # Always the workspace route: on 8.0.2 the org-admin route
+        # (/api/v1/admin/virtual-keys + workspaceId) answers 404 "the key owner is
+        # not a member of this workspace" even for a member.
+        ws = workspace_id or (None if self.org_scope else self.default_workspace())
+        if not ws:
+            raise ConnectorError('Workspace ID is required to create a key')
+        return self._with_secret(
+            self._call('POST', '/api/v1/workspaces/{0}/virtual-keys'.format(ws), body))
+
+    @staticmethod
+    def _with_secret(data):
+        """Copy the once-only secret to new_secret, whichever field the gateway used."""
+        if isinstance(data, dict) and 'new_secret' not in data:
+            for candidate in SECRET_RESPONSE_FIELDS:
+                value = data.get(candidate)
+                if isinstance(value, str) and value.startswith('faig_'):
+                    data['new_secret'] = value
+                    break
+        return data
 
     def update_virtual_key(self, key_id: str,
                            expires_at: Optional[str] = None,
@@ -602,14 +624,8 @@ class FaigClient:
         return self._call('PUT', self._path('virtual-keys/{0}'.format(key_id)), body)
 
     def rotate_virtual_key(self, key_id: str) -> dict:
-        data = self._call('POST', self._path('virtual-keys/{0}/rotate'.format(key_id)))
-        if isinstance(data, dict) and 'new_secret' not in data:
-            for candidate in SECRET_RESPONSE_FIELDS:
-                value = data.get(candidate)
-                if isinstance(value, str) and value.startswith('faig_'):
-                    data['new_secret'] = value
-                    break
-        return data
+        return self._with_secret(
+            self._call('POST', self._path('virtual-keys/{0}/rotate'.format(key_id))))
 
     def revoke_virtual_key(self, key_id: str, reason: str = 'Revoked from FortiSOAR') -> dict:
         # The gateway rejects a revoke without a reason ("expected required property reason").

@@ -1,5 +1,31 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.0
+
+- New operation **List Expiring Virtual Keys**: keys that expire within
+  **Within (Days)** (default 7), soonest first, and by default the ones already
+  expired. Keys with no expiry and revoked or suspended keys are never listed.
+- **Renew Virtual Key** now also moves out an expiry that would come within
+  **Extend By (Days)**, so a key renewed before it expires no longer expires a
+  few days later anyway. An expiry is never shortened; a key with no expiry is
+  only rotated. Output adds `old_expires_at`.
+- **Create Virtual Key** takes **Providers** (FortiAIGate 8.0.2 refuses a key
+  with no model access) and **Expires In (Days)**, and returns the secret as
+  `new_secret` as well as the gateway's own field.
+- Fixed: **Create Virtual Key** failed on 8.0.2 for an organization administrator
+  with HTTP 404 "the key owner is not a member of this workspace", even for a
+  member. Keys are now always created through the workspace route.
+- New sample playbooks **Renew Expiring FortiAIGate Keys in Vault**, **Renew
+  FortiAIGate Key in Vault** and **Onboard FortiAIGate Key to Vault** (an API
+  endpoint): keys are linked to their Vault secrets by a `faig_key_id` metadata
+  tag, renewed before they expire, and written back without reading any secret.
+  They need `hashicorp-vault-kv` 1.2.0. They replace the sample playbook **Heal
+  Expired FortiAIGate Key in Vault**, which is removed: the renewal covers expired
+  keys too, and Heal read the secret, which the renewal never does. All sample
+  playbooks run in debug mode so
+  an API caller can read the results; see the README for what that keeps in the
+  run history.
+
 ## 1.5.1
 
 - **Renew Virtual Key** never leaves an expired key's old secret working. Extending the

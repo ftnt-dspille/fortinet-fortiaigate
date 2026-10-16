@@ -640,3 +640,91 @@ def test_a_workspace_login_tests_each_custom_detector_when_there_is_no_tester(fa
     clean = ops.test_guardrail(config, {'input_text': 'hello',
                                         'detector_ids': ['dc18b94d-a99f-4bd0-b32b-2bd77c3a0cbe']})
     assert clean['finalDisposition'] == 'allow' and not clean['matched']
+
+
+# - renew ahead of expiry, and List Expiring Virtual Keys (1.6.0) ---------------
+
+def _in_days(days):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+
+
+def test_renew_moves_a_soon_expiry_out_so_the_key_does_not_expire_anyway(fake, config):
+    _expired_key(fake, status='active', expiresAt=_in_days(3))
+    result = ops.renew_virtual_key(config, {'key_id': 'old-1', 'expires_in_days': '30'})
+    assert result['method'] == 'extended_and_rotated' and result['old_status'] == 'active'
+    assert _in_days(29) < result['expires_at'] < _in_days(31)
+    assert fake.last_put_body['expiresAt'] == result['expires_at']
+    assert result['old_expires_at'] < _in_days(4)
+
+
+def test_renew_never_shortens_an_expiry(fake, config):
+    _expired_key(fake, status='active', expiresAt=_in_days(100))
+    result = ops.renew_virtual_key(config, {'key_id': 'old-1', 'expires_in_days': '30'})
+    assert result['method'] == 'rotated' and fake.last_put_body is None
+    assert result['expires_at'] == fake.keys['old-1']['expiresAt']
+
+
+def test_a_failed_rotate_after_extending_an_active_key_restores_it_and_does_not_revoke(
+        fake, config, monkeypatch):
+    from fortiaigate.connections import ConnectorError, FaigClient
+    soon = _in_days(2)
+    _expired_key(fake, status='active', expiresAt=soon)
+
+    def boom(self, key_id):
+        raise ConnectorError('rotate failed')
+    monkeypatch.setattr(FaigClient, 'rotate_virtual_key', boom)
+    with pytest.raises(ConnectorError, match='rotate failed'):
+        ops.renew_virtual_key(config, {'key_id': 'old-1'})
+    assert fake.keys['old-1']['expiresAt'] == soon
+    assert fake.last_revoke_body is None and fake.keys['old-1']['status'] == 'active'
+
+
+def _expiry_fleet(fake):
+    fake.keys.clear()
+    for kid, status, expires in (('soon', 'active', _in_days(2)), ('later', 'active', _in_days(20)),
+                                 ('gone', 'expired', _in_days(-1)), ('stale', 'active', _in_days(-0.5)),
+                                 ('revoked', 'revoked', _in_days(1)), ('forever', 'active', None)):
+        fake.keys[kid] = {'id': kid, 'keyName': kid, 'status': status, 'expiresAt': expires,
+                          'workspace': {'id': 'ws-1', 'name': 'Default'}}
+
+
+def test_list_expiring_keys_soonest_first_with_the_expired_ones(fake, config):
+    _expiry_fleet(fake)
+    result = ops.list_expiring_virtual_keys(config, {'within_days': '7'})
+    assert result['key_ids'] == ['gone', 'stale', 'soon'] and result['count'] == 3
+    assert [k['expired'] for k in result['keys']] == [True, True, False]
+    assert 1.9 < result['keys'][2]['days_left'] < 2.1
+
+
+def test_list_expiring_keys_can_leave_out_the_expired_ones(fake, config):
+    _expiry_fleet(fake)
+    assert ops.list_expiring_virtual_keys(config, {'include_expired': 'false'})['key_ids'] == ['soon']
+    assert ops.list_expiring_virtual_keys(config, {'within_days': '0'})['key_ids'] == ['gone', 'stale']
+    assert ops.list_expiring_virtual_keys(config, {'within_days': '30'})['key_ids'] == [
+        'gone', 'stale', 'soon', 'later']
+
+
+@pytest.mark.parametrize('days', ['-1', '4000', 'soon'])
+def test_list_expiring_keys_rejects_a_bad_window(fake, config, days):
+    from fortiaigate.connections import ConnectorError
+    with pytest.raises(ConnectorError, match='Within'):
+        ops.list_expiring_virtual_keys(config, {'within_days': days})
+
+
+def test_create_grants_model_access_sets_expiry_in_days_and_returns_the_secret(fake, config):
+    result = ops.create_virtual_key(config, {'workspace_id': 'ws-1', 'key_name': 'lab/chat',
+                                             'expires_in_days': '7', 'provider_ids': 'openai, anthropic'})
+    body = fake.last_create_body
+    assert body['providerAccess'] == [
+        {'providerId': 'openai', 'allKeys': True, 'allModels': True},
+        {'providerId': 'anthropic', 'allKeys': True, 'allModels': True}]
+    assert _in_days(6.9) < body['expiresAt'] < _in_days(7.1)
+    assert result['new_secret'] == result['secretKey'] and result['new_secret'].startswith('faig_')
+
+
+def test_create_prefers_an_explicit_expiry_and_sends_no_access_when_none_given(fake, config):
+    ops.create_virtual_key(config, {'workspace_id': 'ws-1', 'key_name': 'k',
+                                    'expires_at': '2030-01-01T00:00:00.000Z', 'expires_in_days': '7'})
+    assert fake.last_create_body['expiresAt'] == '2030-01-01T00:00:00.000Z'
+    assert 'providerAccess' not in fake.last_create_body

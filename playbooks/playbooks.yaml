@@ -4,7 +4,8 @@
 # is stamped with the info.json version and frozen timestamps).
 #
 # Requires alongside this connector on the appliance:
-#   - hashicorp-vault-kv (write-capable KV v2 connector), default config
+#   - hashicorp-vault-kv 1.2.0+ in its default config, with a token that can
+#     list/read/patch metadata and create/patch data under the app folder
 #   - fortinet-fortiaigate in its default config
 
 collection: Sample - Fortinet FortiAIGate - 1.3.1
@@ -24,147 +25,430 @@ exported_tags:
 
 playbooks:
 
-  - name: Heal Expired FortiAIGate Key in Vault
-    description: >-
-      Keeps an application's FortiAIGate virtual key working. Reads the key
-      from a HashiCorp Vault KV v2 secret and tests it against the data plane.
-      If it no longer works, the playbook renews the same key - an expired key
-      is extended (FortiAIGate only rotates an active key) and then rotated -
-      writes the new secret into the same Vault path as a new version, and
-      checks that the new secret works. The key keeps its id, name, limits,
-      policies and model access; every other field of the secret is kept. A
-      key that still works is left alone, and a revoked or suspended key stops
-      the run with a message.
+  # - Proactive renewal: FortiAIGate finds the expiring keys, Vault metadata
+  #   says where each one is stored, nothing reads a secret. ----------------
 
-      Inputs: secret_path (the KV v2 path, for example lab/ai) and, when the
-      key is not stored under api_key, key_field. Outputs: rotation_result
-      (a one-line outcome), rotated (true or false), key_id and key_method
-      (rotated or extended_and_rotated). Run it from a schedule, or call it
-      as a child playbook once per secret.
+  - name: Renew Expiring FortiAIGate Keys in Vault
+    description: >-
+      Renews FortiAIGate virtual keys before they expire and puts each new
+      secret into the HashiCorp Vault secret that holds it. FortiAIGate lists
+      the keys that expire within Within (Days), and the ones already expired.
+      Vault is then searched under Secret Folder for secrets whose custom
+      metadata tag faig_key_id names one of those keys; Vault cannot search,
+      so this lists the folder and reads each secret's metadata, never a
+      secret value. A key with exactly one tagged secret is renewed by the
+      child playbook "Renew FortiAIGate Key in Vault". A key no secret is
+      tagged with is left to expire (no app uses it), and a key tagged on more
+      than one secret is not touched and reported as a conflict, for a person.
+
+      Inputs: secret_folder (default lab), within_days (default 2) and
+      extend_days (default 7; must be more than within_days, or every run
+      would renew the same keys again). Outputs: expiring, renewed, failed,
+      unused and conflicts. Run it from a schedule, for example every 15
+      minutes. The default HashiCorp Vault KV configuration needs read and
+      list on the folder's metadata, patch on its metadata, and patch on its
+      data - not read.
     is_active: true
-    parameters: [secret_path, key_field]
+    debug: true
+    parameters: [secret_folder, within_days, extend_days]
     steps:
 
       - name: Start
         type: start
-        next: ResolvePath
+        next: ResolveInputs
 
-      - name: ResolvePath
+      - name: ResolveInputs
         type: set_variable
-        next: ReadCurrentSecret
+        next: SettingsValid
         comment: >-
-          The Vault path of the secret holding the key, and the field it is
-          stored in. Read from the playbook parameters (manual run, schedule,
-          child call) or, for an API trigger that sends them as top-level
-          variables, from vars.
+          Read from the playbook parameters (manual run, schedule) or, for an
+          API trigger that sends them as top-level variables, from vars.
         vars:
-          secret_path: "{{ vars.input.params.secret_path | default(vars.secret_path, true) | default('lab/ai', true) }}"
-          key_field: "{{ vars.input.params.key_field | default(vars.key_field, true) | default('api_key', true) }}"
+          secret_folder: "{{ vars.input.params.secret_folder | default(vars.secret_folder, true) | default('lab', true) }}"
+          within_days: "{{ vars.input.params.within_days | default(vars.within_days, true) | default(2, true) }}"
+          extend_days: "{{ vars.input.params.extend_days | default(vars.extend_days, true) | default(7, true) }}"
 
-      - name: ReadCurrentSecret
-        type: connector
-        next: CheckCurrentKey
-        connector: hashicorp-vault-kv
-        operation: read_secret
-        config: ''
-        params:
-          path: '{{ vars.secret_path }}'
-
-      - name: CheckCurrentKey
-        type: connector
-        next: KeyValid
-        connector: fortinet-fortiaigate
-        operation: check_key
-        config: ''
-        params:
-          api_key: '{{ vars.steps.ReadCurrentSecret.data.data[vars.key_field] }}'
-
-      - name: KeyValid
+      - name: SettingsValid
         type: decision
-        next: RenewKey
-        comment: Branch on the data-plane verdict for the stored key.
         conditions:
-          - display: Invalid - renew
-            when: "{{ vars.steps.CheckCurrentKey.data.valid | default(true) != true }}"
-            next: RenewKey
-          - display: Valid - nothing to do
+          - display: Extend is longer than the window
+            when: "{{ (vars.extend_days | float) > (vars.within_days | float) }}"
+            next: ListExpiringKeys
+          - display: Refused - would renew the same keys every run
             default: true
-            next: AlreadyHealthy
+            next: RefuseSettings
+
+      - name: ListExpiringKeys
+        type: connector
+        next: FindTaggedSecrets
+        connector: fortinet-fortiaigate
+        operation: list_expiring_virtual_keys
+        config: ''
+        params:
+          workspace_id: ''
+          within_days: '{{ vars.within_days }}'
+          include_expired: true
+
+      - name: FindTaggedSecrets
+        type: connector
+        next: AnyToRenew
+        comment: Metadata only - the token needs no read on the secrets.
+        connector: hashicorp-vault-kv
+        operation: find_secrets_by_metadata
+        config: ''
+        params:
+          path: '{{ vars.secret_folder }}'
+          metadata_key: faig_key_id
+          values: '{{ vars.steps.ListExpiringKeys.data.key_ids | tojson }}'
+          max_paths: 1000
+
+      - name: AnyToRenew
+        type: decision
+        conditions:
+          - display: Keys to renew
+            when: "{{ vars.steps.FindTaggedSecrets.data.matches | length > 0 }}"
+            next: RenewEachKey
+          - display: Nothing to renew
+            default: true
+            next: Summary
+
+      - name: RenewEachKey
+        type: workflow_reference
+        next: Summary
+        comment: >-
+          One child run per key, so a failure on one key cannot stop the
+          others or separate a key's rotate from its Vault write.
+        target: Renew FortiAIGate Key in Vault
+        for_each:
+          item: '{{ vars.steps.FindTaggedSecrets.data.matches }}'
+          parallel: false
+          condition: ''
+        key_id: '{{ vars.item.value }}'
+        secret_path: '{{ vars.item.path }}'
+        extend_days: '{{ vars.extend_days }}'
+        apply_async: false
+        pass_parent_env: false
+        pass_input_record: false
+
+      - name: RefuseSettings
+        type: set_variable
+        vars:
+          outcome: "refused - extend_days ({{ vars.extend_days }}) must be more than within_days ({{ vars.within_days }})"
+          expiring: []
+          renewed: []
+          failed: []
+          unused: []
+          conflicts: []
+
+      - name: Summary
+        type: set_variable
+        comment: Terminal summary. renewed and failed come from the child runs.
+        vars:
+          expiring: '{{ vars.steps.ListExpiringKeys.data.key_ids }}'
+          renewed: "{{ (vars.steps.RenewEachKey | default([], true)) | selectattr('outcome', 'defined') | selectattr('outcome', 'equalto', 'renewed') | list }}"
+          failed: "{{ (vars.steps.RenewEachKey | default([], true)) | rejectattr('outcome', 'equalto', 'renewed') | list }}"
+          unused: '{{ vars.steps.FindTaggedSecrets.data.unmatched }}'
+          conflicts: '{{ vars.steps.FindTaggedSecrets.data.conflicts }}'
+          outcome: >-
+            {{ vars.steps.ListExpiringKeys.data.count }} expiring,
+            {{ vars.steps.FindTaggedSecrets.data.matches | length }} tagged in Vault,
+            {{ vars.steps.FindTaggedSecrets.data.unmatched | length }} unused,
+            {{ vars.steps.FindTaggedSecrets.data.conflicts | length }} conflicts
+
+  - name: Renew FortiAIGate Key in Vault
+    description: >-
+      Renews one FortiAIGate virtual key and stores its new secret in the
+      HashiCorp Vault secret that holds it. The key keeps its id, name,
+      limits, policies and model access; its expiry moves to Extend By (Days)
+      from now when it would come sooner. Only the api_key field of the
+      secret is changed (an HTTP PATCH - other fields are kept), and the
+      secret's metadata is stamped with faig_rotated_at and faig_expires_at.
+      The new secret is then tested against the data plane.
+
+      If the renew is refused (a revoked key, say), outcome is renew_failed
+      and nothing changes. If the Vault write fails, the run says so and stores the
+      secret nowhere: the old secret is already dead, so fix Vault and run
+      this again - a rotate can be repeated. Called by "Renew Expiring
+      FortiAIGate Keys in Vault"; inputs key_id, secret_path, extend_days.
+      Outputs: key_id, key_name, secret_path, outcome (renewed,
+      renew_failed or write_failed), method, expires_at, verified.
+    is_active: true
+    debug: true
+    parameters: [key_id, secret_path, extend_days]
+    steps:
+
+      - name: Start
+        type: start
+        next: ResolveInputs
+
+      - name: ResolveInputs
+        type: set_variable
+        next: RenewKey
+        vars:
+          key_id: "{{ vars.input.params.key_id | default(vars.key_id, true) }}"
+          secret_path: "{{ vars.input.params.secret_path | default(vars.secret_path, true) }}"
+          extend_days: "{{ vars.input.params.extend_days | default(vars.extend_days, true) | default(7, true) }}"
 
       - name: RenewKey
         type: connector
-        next: BuildPayload
+        next: RenewOK
         comment: >-
-          Same key, new secret. FortiAIGate only rotates an active key, so an
-          expired one is extended first.
+          Errors are caught so the child always ends on a result (a revoked
+          key, say), and one bad key cannot stop the parent's loop.
         connector: fortinet-fortiaigate
         operation: renew_virtual_key
         config: ''
         params:
-          key_id: ''
-          api_key: '{{ vars.steps.ReadCurrentSecret.data.data[vars.key_field] }}'
+          key_id: '{{ vars.key_id }}'
+          api_key: ''
+          expires_in_days: '{{ vars.extend_days }}'
+        ignore_errors: true
 
-      - name: BuildPayload
-        type: set_variable
-        next: WriteSecret
-        comment: >-
-          KV v2 writes create a new version and drop omitted fields, so the
-          new secret data is the whole current secret with only the key field
-          replaced. Built as a JSON string because connector params are strings.
-        vars:
-          payload: >-
-            {{ (vars.steps.ReadCurrentSecret.data.data | combine({vars.key_field: vars.steps.RenewKey.data.new_secret})) | tojson }}
+      - name: RenewOK
+        type: decision
+        conditions:
+          - display: Key renewed
+            when: "{{ vars.steps.RenewKey.data.new_secret | default('', true) | length > 0 }}"
+            next: WriteSecret
+          - display: Renew failed
+            default: true
+            next: RenewFailed
 
       - name: WriteSecret
         type: connector
-        next: VerifyNewKey
+        next: Written
+        comment: Changes only api_key. Retried on network and server errors.
         connector: hashicorp-vault-kv
-        operation: write_secret
+        operation: patch_secret
         config: ''
         params:
           path: '{{ vars.secret_path }}'
-          secret_data: '{{ vars.payload }}'
+          secret_data: '{{ {"api_key": vars.steps.RenewKey.data.new_secret} | tojson }}'
+          retries: 3
+        ignore_errors: true
+
+      - name: Written
+        type: decision
+        conditions:
+          - display: Stored in Vault
+            when: "{{ (vars.steps.WriteSecret.data.version | default(0, true) | int) > 0 }}"
+            next: StampMetadata
+          - display: Vault write failed
+            default: true
+            next: WriteFailed
+
+      - name: StampMetadata
+        type: connector
+        next: VerifyNewKey
+        connector: hashicorp-vault-kv
+        operation: patch_metadata
+        config: ''
+        params:
+          path: '{{ vars.secret_path }}'
+          custom_metadata: >-
+            {{ {"faig_key_id": vars.key_id, "faig_key_name": vars.steps.RenewKey.data.key.keyName | default(""),
+                "faig_expires_at": vars.steps.RenewKey.data.expires_at | default(""),
+                "faig_rotated_at": vars.steps.RenewKey.data.key.updatedAt | default("")} | tojson }}
+        ignore_errors: true
 
       - name: VerifyNewKey
         type: connector
-        next: NewKeyValid
+        next: Renewed
         connector: fortinet-fortiaigate
         operation: check_key
         config: ''
         params:
           api_key: '{{ vars.steps.RenewKey.data.new_secret }}'
 
-      - name: NewKeyValid
+      - name: RenewFailed
+        type: set_variable
+        vars:
+          key_id: '{{ vars.key_id }}'
+          key_name: ''
+          secret_path: '{{ vars.secret_path }}'
+          outcome: renew_failed
+          method: ''
+          expires_at: ''
+          verified: false
+
+      - name: WriteFailed
+        type: set_variable
+        vars:
+          key_id: '{{ vars.key_id }}'
+          key_name: '{{ vars.steps.RenewKey.data.key.keyName | default("") }}'
+          secret_path: '{{ vars.secret_path }}'
+          outcome: write_failed
+          method: '{{ vars.steps.RenewKey.data.method | default("") }}'
+          expires_at: '{{ vars.steps.RenewKey.data.expires_at | default("") }}'
+          verified: false
+
+      - name: Renewed
+        type: set_variable
+        vars:
+          key_id: '{{ vars.key_id }}'
+          key_name: '{{ vars.steps.RenewKey.data.key.keyName | default("") }}'
+          secret_path: '{{ vars.secret_path }}'
+          outcome: "{{ 'renewed' if vars.steps.VerifyNewKey.data.valid | default(false) else 'renewed_unverified' }}"
+          method: '{{ vars.steps.RenewKey.data.method }}'
+          expires_at: '{{ vars.steps.RenewKey.data.expires_at }}'
+          verified: '{{ vars.steps.VerifyNewKey.data.valid | default(false) }}'
+
+  # - Onboarding: an API call creates a key and stores it, tagged, in Vault. -
+
+  - name: Onboard FortiAIGate Key to Vault
+    description: >-
+      API endpoint that creates a FortiAIGate virtual key for an app and
+      stores it in a NEW HashiCorp Vault secret, tagged so the renewal
+      playbooks can find it. POST a JSON body: secret_path (required),
+      key_name (default: the secret path), workspace (name or id),
+      providers (default openai), expires_in_days (default 7) and fields (an
+      object of extra secret fields, for example base_url and model).
+
+      The secret path must be free: the run checks first and writes with
+      check-and-set 0, so an existing secret is never overwritten. If the
+      Vault write fails, the new key is revoked, so no working key is left
+      outside Vault. The secret's metadata gets faig_key_id, faig_key_name,
+      faig_expires_at and faig_created_at. Ends with key_name, secret_path,
+      key_id, expires_at and outcome (created, path_in_use or
+      write_failed). The default HashiCorp Vault KV configuration needs create
+      on the data path and read and patch on the metadata path.
+    is_active: true
+    debug: true
+    parameters: [api_body]
+    steps:
+
+      - name: Start
+        type: api_endpoint
+        next: ParseRequest
+        route: fortiaigate/onboard-key
+
+      - name: ParseRequest
+        type: set_variable
+        next: CheckPathFree
+        comment: The API body arrives as a raw JSON string in vars.request.body.
+        vars:
+          request_body: "{{ vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true)) }}"
+          secret_path: "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).secret_path | default('', true) | trim('/') }}"
+          key_name: "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).key_name | default('', true) }}"
+          workspace: "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).workspace | default('', true) }}"
+          providers: "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).providers | default('openai', true) }}"
+          expires_in_days: "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).expires_in_days | default(7, true) }}"
+          fields: "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).fields | default({}, true) }}"
+
+      - name: CheckPathFree
+        type: connector
+        next: PathFree
+        connector: hashicorp-vault-kv
+        operation: read_metadata
+        config: ''
+        params:
+          path: '{{ vars.secret_path }}'
+          missing_ok: true
+
+      - name: PathFree
         type: decision
-        next: Done
-        comment: The new secret must validate; anything else fails the run.
         conditions:
-          - display: New key valid
-            when: '{{ vars.steps.VerifyNewKey.data.valid | default(false) }}'
-            next: Done
-          - display: New key invalid - run failed
+          - display: Path is free
+            when: "{{ vars.secret_path and not vars.steps.CheckPathFree.data.exists }}"
+            next: CreateKey
+          - display: Path in use (or none given)
             default: true
-            next: FailRotation
+            next: PathInUse
 
-      - name: AlreadyHealthy
-        type: set_variable
-        next: Done
-        vars:
-          rotation_outcome: no-op - stored key already valid
-          rotated: false
+      - name: CreateKey
+        type: connector
+        next: StoreSecret
+        connector: fortinet-fortiaigate
+        operation: create_virtual_key
+        config: ''
+        params:
+          workspace_id: '{{ vars.workspace }}'
+          key_name: '{{ vars.key_name or vars.secret_path }}'
+          expires_at: ''
+          expires_in_days: '{{ vars.expires_in_days }}'
+          tpm: ''
+          rpm: ''
+          provider_ids: '{{ vars.providers }}'
 
-      - name: FailRotation
-        type: set_variable
-        comment: Reachable only when the new secret does not validate.
-        vars:
-          rotation_outcome: failed - new secret rejected by the data plane
-          rotated: false
+      - name: StoreSecret
+        type: connector
+        next: Stored
+        comment: Check-and-set 0 - refused if anything was written there meanwhile.
+        connector: hashicorp-vault-kv
+        operation: write_secret
+        config: ''
+        params:
+          path: '{{ vars.secret_path }}'
+          secret_data: '{{ vars.fields | combine({"api_key": vars.steps.CreateKey.data.new_secret}) | tojson }}'
+          create_only: true
+        ignore_errors: true
 
-      - name: Done
+      - name: Stored
+        type: decision
+        conditions:
+          - display: Stored in Vault
+            when: "{{ (vars.steps.StoreSecret.data.version | default(0, true) | int) > 0 }}"
+            next: TagSecret
+          - display: Vault write failed - undo the key
+            default: true
+            next: UndoKey
+
+      - name: UndoKey
+        type: connector
+        next: WriteFailed
+        connector: fortinet-fortiaigate
+        operation: revoke_virtual_key
+        config: ''
+        params:
+          key_id: '{{ vars.steps.CreateKey.data.id }}'
+          reason: 'Onboarding failed: the secret could not be stored in Vault'
+
+      - name: TagSecret
+        type: connector
+        next: VerifyKey
+        connector: hashicorp-vault-kv
+        operation: patch_metadata
+        config: ''
+        params:
+          path: '{{ vars.secret_path }}'
+          custom_metadata: >-
+            {{ {"faig_key_id": vars.steps.CreateKey.data.id, "faig_key_name": vars.steps.CreateKey.data.keyName,
+                "faig_expires_at": vars.steps.CreateKey.data.expiresAt | default(""),
+                "faig_created_at": vars.steps.CreateKey.data.createdAt | default("")} | tojson }}
+
+      - name: VerifyKey
+        type: connector
+        next: Created
+        connector: fortinet-fortiaigate
+        operation: check_key
+        config: ''
+        params:
+          api_key: '{{ vars.steps.CreateKey.data.new_secret }}'
+
+      - name: PathInUse
         type: set_variable
-        comment: Terminal summary.
         vars:
-          key_id: '{{ vars.steps.RenewKey.data.key_id | default("") }}'
-          key_method: '{{ vars.steps.RenewKey.data.method | default("") }}'
-          rotation_result: '{{ vars.rotation_outcome | default("renewed - new secret stored in Vault and verified") }}'
-          rotated: '{{ vars.rotated | default(true) }}'
+          key_name: ''
+          secret_path: '{{ vars.secret_path }}'
+          key_id: ''
+          expires_at: ''
+          outcome: "{{ 'path_in_use' if vars.secret_path else 'secret_path_required' }}"
+
+      - name: WriteFailed
+        type: set_variable
+        vars:
+          key_name: '{{ vars.steps.CreateKey.data.keyName }}'
+          secret_path: '{{ vars.secret_path }}'
+          key_id: '{{ vars.steps.CreateKey.data.id }}'
+          expires_at: ''
+          outcome: write_failed
+
+      - name: Created
+        type: set_variable
+        comment: Terminal - the FortiAIGate key name and the Vault path it is stored at.
+        vars:
+          key_name: '{{ vars.steps.CreateKey.data.keyName }}'
+          secret_path: '{{ vars.secret_path }}'
+          key_id: '{{ vars.steps.CreateKey.data.id }}'
+          expires_at: '{{ vars.steps.CreateKey.data.expiresAt | default("") }}'
+          outcome: "{{ 'created' if vars.steps.VerifyKey.data.valid | default(false) else 'created_unverified' }}"

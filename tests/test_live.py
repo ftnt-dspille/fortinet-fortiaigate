@@ -102,9 +102,8 @@ def test_live_create_rotate_revoke_disposable_key():
                     'console as a workspace member first)')
     workspace = mine[0]
     name = 'fsr-connector-test-{0}'.format(uuid.uuid4().hex[:8])
-    name = 'fsr-connector-test-{0}'.format(uuid.uuid4().hex[:8])
     created = ops.create_virtual_key(
-        config, {'workspace_id': workspace['_id'], 'key_name': name})
+        config, {'workspace_id': workspace['_id'], 'key_name': name, 'provider_ids': 'openai'})
     secret = created['secretKey']
     assert secret.startswith('faig_')
     key_id = created['id']
@@ -189,17 +188,18 @@ def test_live_audit_log_filter_options():
 
 def test_live_dropdown_options():
     config = _config()
+    # Dropdowns list plain names; execute() resolves a picked name to its id.
     workspaces = ops.get_workspace_options(config, {})
-    assert all(set(o) == {'title', 'value'} and o['value'] for o in workspaces)
+    assert workspaces and all(isinstance(o, str) and o for o in workspaces)
 
     keys = ops.get_virtual_key_options(config, {})
-    assert any(o['value'] for o in keys)
+    assert keys and all(isinstance(o, str) and o for o in keys)
 
     guardrails = ops.get_guardrail_options(config, {})
     assert guardrails  # live gateway ships guardrails
 
     detectors = ops.get_detector_options(config, {})
-    assert any('owasp-agentic-top-10' == o['value'] for o in detectors)
+    assert 'OWASP Agentic Top 10' in detectors
 
     models = ops.get_model_options(config, {})
     assert any('gpt' in m or 'claude' in m for m in models)
@@ -219,3 +219,89 @@ def test_live_chat_completion():
         'max_tokens': '16'})
     assert result['content']
     assert result['usage']['total_tokens'] >= 1
+
+
+# - 1.6.0: create with model access, list expiring keys, renew ahead of expiry -----
+
+def _in_days(days):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+
+
+@pytest.fixture()
+def disposable_key():
+    """Create keys on demand (deleted afterwards, whatever the test did)."""
+    if (_env('FAIG_ALLOW_MUTATE') or '').lower() != 'true':
+        pytest.skip('mutating tests are opt-in (FAIG_ALLOW_MUTATE=true)')
+    config = _config()
+    mine = ops.list_my_workspaces(config, {})
+    wanted = _env('FAIG_WORKSPACE_ID')
+    workspace = next((w['_id'] for w in mine if wanted in (w['_id'], w.get('name'), w.get('workspaceName'))),
+                     None) if wanted else next((w['_id'] for w in mine), None)
+    if not workspace:
+        pytest.skip('no workspace to create keys in (set FAIG_WORKSPACE_ID)')
+    made = []
+
+    def make(**params):
+        created = ops.create_virtual_key(config, dict(
+            {'workspace_id': workspace, 'key_name': 'fsr-connector-test-' + uuid.uuid4().hex[:8],
+             'provider_ids': 'openai'}, **params))
+        made.append(created['id'])
+        return created
+    yield config, make
+    client = make_client(config)
+    for key_id in made:
+        client.raw('DELETE', client._path('virtual-keys/{0}'.format(key_id)))
+
+
+@pytest.mark.mutate
+def test_live_create_with_model_access_and_expiry_in_days(disposable_key):
+    config, make = disposable_key
+    created = make(expires_in_days='7')
+    assert created['new_secret'].startswith('faig_')
+    assert _in_days(6.9) < created['expiresAt'] < _in_days(7.1)
+    assert ops.check_key(config, {'api_key': created['new_secret']})['valid'] is True
+
+
+@pytest.mark.mutate
+def test_live_create_without_model_access_is_refused(disposable_key):
+    config, make = disposable_key
+    with pytest.raises(ops.ConnectorError, match='422'):
+        make(provider_ids='')
+
+
+@pytest.mark.mutate
+def test_live_list_expiring_keys(disposable_key):
+    config, make = disposable_key
+    soon = make(expires_in_days='1')['id']
+    later = make(expires_in_days='20')['id']
+    forever = make()['id']
+    ids = ops.list_expiring_virtual_keys(config, {'within_days': '2'})['key_ids']
+    assert soon in ids and later not in ids and forever not in ids
+    assert later in ops.list_expiring_virtual_keys(config, {'within_days': '30'})['key_ids']
+
+
+@pytest.mark.mutate
+def test_live_renew_ahead_of_expiry_moves_the_expiry_out(disposable_key):
+    config, make = disposable_key
+    created = make(expires_in_days='1')
+    result = ops.renew_virtual_key(config, {'key_id': created['id'], 'expires_in_days': '7'})
+    assert result['method'] == 'extended_and_rotated' and result['old_status'] == 'active'
+    key = ops.get_virtual_key(config, {'key_id': created['id']})
+    assert _in_days(6.9) < key['expiresAt'] < _in_days(7.1)
+    assert ops.check_key(config, {'api_key': result['new_secret']})['valid'] is True
+    old = ops.check_key(config, {'api_key': created['new_secret']})
+    if old['valid']:
+        time.sleep(5)
+        old = ops.check_key(config, {'api_key': created['new_secret']})
+    assert old['valid'] is False
+    assert created['id'] not in ops.list_expiring_virtual_keys(config, {'within_days': '2'})['key_ids']
+
+
+@pytest.mark.mutate
+def test_live_renew_never_shortens(disposable_key):
+    config, make = disposable_key
+    created = make(expires_in_days='30')
+    result = ops.renew_virtual_key(config, {'key_id': created['id'], 'expires_in_days': '7'})
+    assert result['method'] == 'rotated'
+    assert ops.get_virtual_key(config, {'key_id': created['id']})['expiresAt'] == created['expiresAt']

@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.5.1",
+      "name": "Sample - Fortinet FortiAIGate - 1.6.0",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -20,24 +20,25 @@
       "workflows": [
         {
           "@type": "Workflow",
-          "name": "Heal Expired FortiAIGate Key in Vault",
+          "name": "Renew Expiring FortiAIGate Keys in Vault",
           "aliasName": null,
           "tag": "",
           "recordTags": [],
-          "description": "Keeps an application's FortiAIGate virtual key working. Reads the key from a HashiCorp Vault KV v2 secret and tests it against the data plane. If it no longer works, the playbook renews the same key - an expired key is extended (FortiAIGate only rotates an active key) and then rotated - writes the new secret into the same Vault path as a new version, and checks that the new secret works. The key keeps its id, name, limits, policies and model access; every other field of the secret is kept. A key that still works is left alone, and a revoked or suspended key stops the run with a message.\nInputs: secret_path (the KV v2 path, for example lab/ai) and, when the key is not stored under api_key, key_field. Outputs: rotation_result (a one-line outcome), rotated (true or false), key_id and key_method (rotated or extended_and_rotated). Run it from a schedule, or call it as a child playbook once per secret.",
+          "description": "Renews FortiAIGate virtual keys before they expire and puts each new secret into the HashiCorp Vault secret that holds it. FortiAIGate lists the keys that expire within Within (Days), and the ones already expired. Vault is then searched under Secret Folder for secrets whose custom metadata tag faig_key_id names one of those keys; Vault cannot search, so this lists the folder and reads each secret's metadata, never a secret value. A key with exactly one tagged secret is renewed by the child playbook \"Renew FortiAIGate Key in Vault\". A key no secret is tagged with is left to expire (no app uses it), and a key tagged on more than one secret is not touched and reported as a conflict, for a person.\nInputs: secret_folder (default lab), within_days (default 2) and extend_days (default 7; must be more than within_days, or every run would renew the same keys again). Outputs: expiring, renewed, failed, unused and conflicts. Run it from a schedule, for example every 15 minutes. The default HashiCorp Vault KV configuration needs read and list on the folder's metadata, patch on its metadata, and patch on its data - not read.",
           "isActive": true,
-          "debug": false,
+          "debug": true,
           "singleRecordExecution": false,
           "remoteExecutableFlag": 0,
           "parameters": [
-            "secret_path",
-            "key_field"
+            "secret_folder",
+            "within_days",
+            "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792174203,
+          "lastModifyDate": 1792190180,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
-          "triggerStep": "/api/3/workflow_steps/abc94d4b-1eda-523a-9790-8b8a20aa2327",
+          "triggerStep": "/api/3/workflow_steps/5d3f346c-4857-565d-98e3-6bef350559b9",
           "steps": [
             {
               "@type": "WorkflowStep",
@@ -55,61 +56,67 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/b348f017-9a94-471f-87f8-ce88b6a7ad62",
               "group": null,
-              "uuid": "abc94d4b-1eda-523a-9790-8b8a20aa2327"
+              "uuid": "5d3f346c-4857-565d-98e3-6bef350559b9"
             },
             {
               "@type": "WorkflowStep",
-              "name": "ResolvePath",
+              "name": "ResolveInputs",
               "description": null,
               "arguments": {
-                "secret_path": "{{ vars.input.params.secret_path | default(vars.secret_path, true) | default('lab/ai', true) }}",
-                "key_field": "{{ vars.input.params.key_field | default(vars.key_field, true) | default('api_key', true) }}"
+                "secret_folder": "{{ vars.input.params.secret_folder | default(vars.secret_folder, true) | default('lab', true) }}",
+                "within_days": "{{ vars.input.params.within_days | default(vars.within_days, true) | default(2, true) }}",
+                "extend_days": "{{ vars.input.params.extend_days | default(vars.extend_days, true) | default(7, true) }}"
               },
               "status": null,
               "top": "250",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
-              "uuid": "ee27d413-a39b-515a-8784-5aecb6ffc75b"
+              "uuid": "6b5d0d25-ade5-5437-b601-86fa34f10ec8"
             },
             {
               "@type": "WorkflowStep",
-              "name": "ReadCurrentSecret",
+              "name": "SettingsValid",
               "description": null,
               "arguments": {
-                "connector": "hashicorp-vault-kv",
-                "operation": "read_secret",
-                "config": "",
-                "params": {
-                  "path": "{{ vars.secret_path }}"
-                },
-                "version": "1.0.0",
-                "name": "HashiCorp Vault KV",
-                "operationTitle": "Read Secret",
-                "step_variables": [],
-                "pickFromTenant": false
+                "conditions": [
+                  {
+                    "option": "Extend is longer than the window",
+                    "condition": "{{ (vars.extend_days | float) > (vars.within_days | float) }}",
+                    "step_iri": "/api/3/workflow_steps/ea9b45df-8519-5bf5-8be5-247b0710554b",
+                    "step_name": "ListExpiringKeys"
+                  },
+                  {
+                    "option": "Refused - would renew the same keys every run",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/f16557cc-58c9-5003-b6b4-a59d828c1982",
+                    "step_name": "RefuseSettings"
+                  }
+                ]
               },
               "status": null,
               "top": "380",
               "left": "200",
-              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
-              "uuid": "b5970aff-75e8-53f0-9fe3-cb7e0fde4664"
+              "uuid": "c9047a63-06e8-5baf-98a7-09f636e1234c"
             },
             {
               "@type": "WorkflowStep",
-              "name": "CheckCurrentKey",
+              "name": "ListExpiringKeys",
               "description": null,
               "arguments": {
                 "connector": "fortinet-fortiaigate",
-                "operation": "check_key",
+                "operation": "list_expiring_virtual_keys",
                 "config": "",
                 "params": {
-                  "api_key": "{{ vars.steps.ReadCurrentSecret.data.data[vars.key_field] }}"
+                  "workspace_id": "",
+                  "within_days": "{{ vars.within_days }}",
+                  "include_expired": true
                 },
-                "version": "1.5.1",
+                "version": "1.6.0",
                 "name": "Fortinet FortiAIGate",
-                "operationTitle": "Check API Key",
+                "operationTitle": "List Expiring Virtual Keys",
                 "step_variables": [],
                 "pickFromTenant": false
               },
@@ -118,34 +125,352 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
-              "uuid": "50772d40-7011-5beb-9b28-be9c3cdb20c4"
+              "uuid": "ea9b45df-8519-5bf5-8be5-247b0710554b"
             },
             {
               "@type": "WorkflowStep",
-              "name": "KeyValid",
+              "name": "FindTaggedSecrets",
               "description": null,
               "arguments": {
-                "conditions": [
-                  {
-                    "option": "Invalid - renew",
-                    "condition": "{{ vars.steps.CheckCurrentKey.data.valid | default(true) != true }}",
-                    "step_iri": "/api/3/workflow_steps/00a29d8e-076f-5d26-88f4-35d016e77a5e",
-                    "step_name": "RenewKey"
-                  },
-                  {
-                    "option": "Valid - nothing to do",
-                    "default": true,
-                    "step_iri": "/api/3/workflow_steps/fe03d5f7-021c-50e7-bd41-e3acb5b92cfa",
-                    "step_name": "AlreadyHealthy"
-                  }
-                ]
+                "connector": "hashicorp-vault-kv",
+                "operation": "find_secrets_by_metadata",
+                "config": "",
+                "params": {
+                  "path": "{{ vars.secret_folder }}",
+                  "metadata_key": "faig_key_id",
+                  "values": "{{ vars.steps.ListExpiringKeys.data.key_ids | tojson }}",
+                  "max_paths": 1000
+                },
+                "version": "1.2.0",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Find Secrets by Metadata",
+                "step_variables": [],
+                "pickFromTenant": false
               },
               "status": null,
               "top": "640",
               "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "f1cb2d72-0381-514f-9c38-4f28fdbcad55"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "AnyToRenew",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Keys to renew",
+                    "condition": "{{ vars.steps.FindTaggedSecrets.data.matches | length > 0 }}",
+                    "step_iri": "/api/3/workflow_steps/5ff2585b-d4d8-5a3f-ba5c-a249bef016dc",
+                    "step_name": "RenewEachKey"
+                  },
+                  {
+                    "option": "Nothing to renew",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/2cf84085-6e84-5850-a136-c3cdc4c6fce8",
+                    "step_name": "Summary"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "770",
+              "left": "200",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
-              "uuid": "51cb83cf-19fc-5d4c-9420-2ae732d0f1ae"
+              "uuid": "259c7b04-9f81-5223-aec8-85de04237567"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "RenewEachKey",
+              "description": null,
+              "arguments": {
+                "apply_async": false,
+                "pass_parent_env": false,
+                "pass_input_record": false,
+                "arguments": {
+                  "key_id": "{{ vars.item.value }}",
+                  "secret_path": "{{ vars.item.path }}",
+                  "extend_days": "{{ vars.extend_days }}"
+                },
+                "workflowReference": "/api/3/workflows/c115101d-845d-5757-8c43-2526b5d0c0da",
+                "for_each": {
+                  "item": "{{ vars.steps.FindTaggedSecrets.data.matches }}",
+                  "parallel": false,
+                  "condition": ""
+                }
+              },
+              "status": null,
+              "top": "900",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/74932bdc-b8b6-4d24-88c4-1a4dfbc524f3",
+              "group": null,
+              "uuid": "5ff2585b-d4d8-5a3f-ba5c-a249bef016dc"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "RefuseSettings",
+              "description": null,
+              "arguments": {
+                "outcome": "refused - extend_days ({{ vars.extend_days }}) must be more than within_days ({{ vars.within_days }})",
+                "expiring": [],
+                "renewed": [],
+                "failed": [],
+                "unused": [],
+                "conflicts": []
+              },
+              "status": null,
+              "top": "510",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "f16557cc-58c9-5003-b6b4-a59d828c1982"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "Summary",
+              "description": null,
+              "arguments": {
+                "expiring": "{{ vars.steps.ListExpiringKeys.data.key_ids }}",
+                "renewed": "{{ (vars.steps.RenewEachKey | default([], true)) | selectattr('outcome', 'defined') | selectattr('outcome', 'equalto', 'renewed') | list }}",
+                "failed": "{{ (vars.steps.RenewEachKey | default([], true)) | rejectattr('outcome', 'equalto', 'renewed') | list }}",
+                "unused": "{{ vars.steps.FindTaggedSecrets.data.unmatched }}",
+                "conflicts": "{{ vars.steps.FindTaggedSecrets.data.conflicts }}",
+                "outcome": "{{ vars.steps.ListExpiringKeys.data.count }} expiring, {{ vars.steps.FindTaggedSecrets.data.matches | length }} tagged in Vault, {{ vars.steps.FindTaggedSecrets.data.unmatched | length }} unused, {{ vars.steps.FindTaggedSecrets.data.conflicts | length }} conflicts"
+              },
+              "status": null,
+              "top": "1030",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "2cf84085-6e84-5850-a136-c3cdc4c6fce8"
+            }
+          ],
+          "routes": [
+            {
+              "@type": "WorkflowRoute",
+              "name": "Start -> ResolveInputs",
+              "targetStep": "/api/3/workflow_steps/6b5d0d25-ade5-5437-b601-86fa34f10ec8",
+              "sourceStep": "/api/3/workflow_steps/5d3f346c-4857-565d-98e3-6bef350559b9",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "cb01dbd5-1fa2-5499-a720-87536bfdca41"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "ResolveInputs -> SettingsValid",
+              "targetStep": "/api/3/workflow_steps/c9047a63-06e8-5baf-98a7-09f636e1234c",
+              "sourceStep": "/api/3/workflow_steps/6b5d0d25-ade5-5437-b601-86fa34f10ec8",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "08bfbf7e-19b9-50b2-8989-0d8d85345676"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "SettingsValid -> ListExpiringKeys",
+              "targetStep": "/api/3/workflow_steps/ea9b45df-8519-5bf5-8be5-247b0710554b",
+              "sourceStep": "/api/3/workflow_steps/c9047a63-06e8-5baf-98a7-09f636e1234c",
+              "label": "Extend is longer than the window",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "72178f34-f0e0-5652-8d09-0ec2f030408a"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "SettingsValid -> RefuseSettings",
+              "targetStep": "/api/3/workflow_steps/f16557cc-58c9-5003-b6b4-a59d828c1982",
+              "sourceStep": "/api/3/workflow_steps/c9047a63-06e8-5baf-98a7-09f636e1234c",
+              "label": "Refused - would renew the same keys every run",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "918443d8-db29-5942-b042-b8f3349bc246"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "ListExpiringKeys -> FindTaggedSecrets",
+              "targetStep": "/api/3/workflow_steps/f1cb2d72-0381-514f-9c38-4f28fdbcad55",
+              "sourceStep": "/api/3/workflow_steps/ea9b45df-8519-5bf5-8be5-247b0710554b",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "5b65db95-3b16-5841-8d62-962a2311336b"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "FindTaggedSecrets -> AnyToRenew",
+              "targetStep": "/api/3/workflow_steps/259c7b04-9f81-5223-aec8-85de04237567",
+              "sourceStep": "/api/3/workflow_steps/f1cb2d72-0381-514f-9c38-4f28fdbcad55",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "008b8943-9776-5612-ae6f-22e74a798415"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "AnyToRenew -> RenewEachKey",
+              "targetStep": "/api/3/workflow_steps/5ff2585b-d4d8-5a3f-ba5c-a249bef016dc",
+              "sourceStep": "/api/3/workflow_steps/259c7b04-9f81-5223-aec8-85de04237567",
+              "label": "Keys to renew",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "0c03de01-7412-5913-83d8-4857bb87e4b1"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "AnyToRenew -> Summary",
+              "targetStep": "/api/3/workflow_steps/2cf84085-6e84-5850-a136-c3cdc4c6fce8",
+              "sourceStep": "/api/3/workflow_steps/259c7b04-9f81-5223-aec8-85de04237567",
+              "label": "Nothing to renew",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "ffb2c342-7657-52f8-8f36-2255a2205d7e"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "RenewEachKey -> Summary",
+              "targetStep": "/api/3/workflow_steps/2cf84085-6e84-5850-a136-c3cdc4c6fce8",
+              "sourceStep": "/api/3/workflow_steps/5ff2585b-d4d8-5a3f-ba5c-a249bef016dc",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "8361749f-4879-5881-a6be-27090ac2e08a"
+            }
+          ],
+          "groups": [
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: ResolveInputs",
+              "description": "Read from the playbook parameters (manual run, schedule) or, for an API trigger that sends them as top-level variables, from vars.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "250",
+              "left": "540",
+              "height": "116",
+              "width": "440",
+              "uuid": "a0cc9322-074b-5cab-a29d-172e01838e13",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: FindTaggedSecrets",
+              "description": "Metadata only - the token needs no read on the secrets.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "640",
+              "left": "540",
+              "height": "72",
+              "width": "440",
+              "uuid": "cc209d9c-9247-52f5-b407-b44453523bd0",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: RenewEachKey",
+              "description": "One child run per key, so a failure on one key cannot stop the others or separate a key's rotate from its Vault write.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "900",
+              "left": "880",
+              "height": "116",
+              "width": "440",
+              "uuid": "c3918e9c-723b-5be4-9068-99ce09f9372b",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: Summary",
+              "description": "Terminal summary. renewed and failed come from the child runs.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "1036",
+              "left": "880",
+              "height": "94",
+              "width": "440",
+              "uuid": "322d9acf-3f6e-5046-aa46-88a81d941dd6",
+              "recordTags": []
+            }
+          ],
+          "priority": "/api/3/picklists/9e8d41e4-8ada-4a2c-bd02-07f62c6d0a00",
+          "playbookOrigin": null,
+          "isEditable": true,
+          "uuid": "b44e0681-2a34-59bf-bd9c-909b94cfe992",
+          "owners": [],
+          "isPrivate": false
+        },
+        {
+          "@type": "Workflow",
+          "name": "Renew FortiAIGate Key in Vault",
+          "aliasName": null,
+          "tag": "",
+          "recordTags": [],
+          "description": "Renews one FortiAIGate virtual key and stores its new secret in the HashiCorp Vault secret that holds it. The key keeps its id, name, limits, policies and model access; its expiry moves to Extend By (Days) from now when it would come sooner. Only the api_key field of the secret is changed (an HTTP PATCH - other fields are kept), and the secret's metadata is stamped with faig_rotated_at and faig_expires_at. The new secret is then tested against the data plane.\nIf the renew is refused (a revoked key, say), outcome is renew_failed and nothing changes. If the Vault write fails, the run says so and stores the secret nowhere: the old secret is already dead, so fix Vault and run this again - a rotate can be repeated. Called by \"Renew Expiring FortiAIGate Keys in Vault\"; inputs key_id, secret_path, extend_days. Outputs: key_id, key_name, secret_path, outcome (renewed, renew_failed or write_failed), method, expires_at, verified.",
+          "isActive": true,
+          "debug": true,
+          "singleRecordExecution": false,
+          "remoteExecutableFlag": 0,
+          "parameters": [
+            "key_id",
+            "secret_path",
+            "extend_days"
+          ],
+          "synchronous": false,
+          "lastModifyDate": 1792190180,
+          "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
+          "versions": [],
+          "triggerStep": "/api/3/workflow_steps/e02e815a-71cd-54d1-a90c-852dfcdca883",
+          "steps": [
+            {
+              "@type": "WorkflowStep",
+              "name": "Start",
+              "description": null,
+              "arguments": {
+                "step_variables": {
+                  "input": {
+                    "params": []
+                  }
+                }
+              },
+              "status": null,
+              "top": "120",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/b348f017-9a94-471f-87f8-ce88b6a7ad62",
+              "group": null,
+              "uuid": "e02e815a-71cd-54d1-a90c-852dfcdca883"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "ResolveInputs",
+              "description": null,
+              "arguments": {
+                "key_id": "{{ vars.input.params.key_id | default(vars.key_id, true) }}",
+                "secret_path": "{{ vars.input.params.secret_path | default(vars.secret_path, true) }}",
+                "extend_days": "{{ vars.input.params.extend_days | default(vars.extend_days, true) | default(7, true) }}"
+              },
+              "status": null,
+              "top": "250",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "6bfcaadc-fe9f-5f92-8086-26a6dd4f5e63"
             },
             {
               "@type": "WorkflowStep",
@@ -156,35 +481,50 @@
                 "operation": "renew_virtual_key",
                 "config": "",
                 "params": {
-                  "key_id": "",
-                  "api_key": "{{ vars.steps.ReadCurrentSecret.data.data[vars.key_field] }}"
+                  "key_id": "{{ vars.key_id }}",
+                  "api_key": "",
+                  "expires_in_days": "{{ vars.extend_days }}"
                 },
-                "version": "1.5.1",
+                "ignore_errors": true,
+                "version": "1.6.0",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Renew Virtual Key",
                 "step_variables": [],
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "770",
+              "top": "380",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
-              "uuid": "00a29d8e-076f-5d26-88f4-35d016e77a5e"
+              "uuid": "699176dd-6040-5cf3-83c7-fedd7f75d9a8"
             },
             {
               "@type": "WorkflowStep",
-              "name": "BuildPayload",
+              "name": "RenewOK",
               "description": null,
               "arguments": {
-                "payload": "{{ (vars.steps.ReadCurrentSecret.data.data | combine({vars.key_field: vars.steps.RenewKey.data.new_secret})) | tojson }}"
+                "conditions": [
+                  {
+                    "option": "Key renewed",
+                    "condition": "{{ vars.steps.RenewKey.data.new_secret | default('', true) | length > 0 }}",
+                    "step_iri": "/api/3/workflow_steps/d2baca4e-e98e-5535-8070-d25ec60fcdde",
+                    "step_name": "WriteSecret"
+                  },
+                  {
+                    "option": "Renew failed",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/390210f9-da2b-5bf5-8273-f3d71b3eaf41",
+                    "step_name": "RenewFailed"
+                  }
+                ]
               },
               "status": null,
-              "top": "900",
+              "top": "510",
               "left": "200",
-              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
-              "uuid": "84314bf7-a8b3-5227-b0ba-83b4cee1a0e8"
+              "uuid": "abc388c9-493b-5318-9c99-0f307f52b625"
             },
             {
               "@type": "WorkflowStep",
@@ -192,24 +532,79 @@
               "description": null,
               "arguments": {
                 "connector": "hashicorp-vault-kv",
-                "operation": "write_secret",
+                "operation": "patch_secret",
                 "config": "",
                 "params": {
                   "path": "{{ vars.secret_path }}",
-                  "secret_data": "{{ vars.payload }}"
+                  "secret_data": "{{ {\"api_key\": vars.steps.RenewKey.data.new_secret} | tojson }}",
+                  "retries": 3
                 },
-                "version": "1.0.0",
+                "ignore_errors": true,
+                "version": "1.2.0",
                 "name": "HashiCorp Vault KV",
-                "operationTitle": "Write Secret",
+                "operationTitle": "Update Secret Fields",
                 "step_variables": [],
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1030",
+              "top": "640",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
-              "uuid": "f4228f02-1f80-5153-8909-4691589df183"
+              "uuid": "d2baca4e-e98e-5535-8070-d25ec60fcdde"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "Written",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Stored in Vault",
+                    "condition": "{{ (vars.steps.WriteSecret.data.version | default(0, true) | int) > 0 }}",
+                    "step_iri": "/api/3/workflow_steps/3ea2138f-c214-5de1-b880-f605506561ec",
+                    "step_name": "StampMetadata"
+                  },
+                  {
+                    "option": "Vault write failed",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/e7570151-e1ba-5955-b4fa-2dd2b9d8fdf6",
+                    "step_name": "WriteFailed"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "770",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "cd37f5a8-6046-5707-8f87-41a0c2783aa5"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "StampMetadata",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "patch_metadata",
+                "config": "",
+                "params": {
+                  "path": "{{ vars.secret_path }}",
+                  "custom_metadata": "{{ {\"faig_key_id\": vars.key_id, \"faig_key_name\": vars.steps.RenewKey.data.key.keyName | default(\"\"),\n    \"faig_expires_at\": vars.steps.RenewKey.data.expires_at | default(\"\"),\n    \"faig_rotated_at\": vars.steps.RenewKey.data.key.updatedAt | default(\"\")} | tojson }}"
+                },
+                "ignore_errors": true,
+                "version": "1.2.0",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Update Secret Metadata",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "900",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "3ea2138f-c214-5de1-b880-f605506561ec"
             },
             {
               "@type": "WorkflowStep",
@@ -222,7 +617,491 @@
                 "params": {
                   "api_key": "{{ vars.steps.RenewKey.data.new_secret }}"
                 },
-                "version": "1.5.1",
+                "version": "1.6.0",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Check API Key",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "1030",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "1f8b7b72-eb40-5377-a655-fd85d6da252e"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "RenewFailed",
+              "description": null,
+              "arguments": {
+                "key_id": "{{ vars.key_id }}",
+                "key_name": "",
+                "secret_path": "{{ vars.secret_path }}",
+                "outcome": "renew_failed",
+                "method": "",
+                "expires_at": "",
+                "verified": false
+              },
+              "status": null,
+              "top": "640",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "390210f9-da2b-5bf5-8273-f3d71b3eaf41"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "WriteFailed",
+              "description": null,
+              "arguments": {
+                "key_id": "{{ vars.key_id }}",
+                "key_name": "{{ vars.steps.RenewKey.data.key.keyName | default(\"\") }}",
+                "secret_path": "{{ vars.secret_path }}",
+                "outcome": "write_failed",
+                "method": "{{ vars.steps.RenewKey.data.method | default(\"\") }}",
+                "expires_at": "{{ vars.steps.RenewKey.data.expires_at | default(\"\") }}",
+                "verified": false
+              },
+              "status": null,
+              "top": "900",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "e7570151-e1ba-5955-b4fa-2dd2b9d8fdf6"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "Renewed",
+              "description": null,
+              "arguments": {
+                "key_id": "{{ vars.key_id }}",
+                "key_name": "{{ vars.steps.RenewKey.data.key.keyName | default(\"\") }}",
+                "secret_path": "{{ vars.secret_path }}",
+                "outcome": "{{ 'renewed' if vars.steps.VerifyNewKey.data.valid | default(false) else 'renewed_unverified' }}",
+                "method": "{{ vars.steps.RenewKey.data.method }}",
+                "expires_at": "{{ vars.steps.RenewKey.data.expires_at }}",
+                "verified": "{{ vars.steps.VerifyNewKey.data.valid | default(false) }}"
+              },
+              "status": null,
+              "top": "1160",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "295e4b8c-d1e9-5863-a0fd-39047000b782"
+            }
+          ],
+          "routes": [
+            {
+              "@type": "WorkflowRoute",
+              "name": "Start -> ResolveInputs",
+              "targetStep": "/api/3/workflow_steps/6bfcaadc-fe9f-5f92-8086-26a6dd4f5e63",
+              "sourceStep": "/api/3/workflow_steps/e02e815a-71cd-54d1-a90c-852dfcdca883",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "c8bbb9fc-3494-5784-8d2a-f433af05d207"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "ResolveInputs -> RenewKey",
+              "targetStep": "/api/3/workflow_steps/699176dd-6040-5cf3-83c7-fedd7f75d9a8",
+              "sourceStep": "/api/3/workflow_steps/6bfcaadc-fe9f-5f92-8086-26a6dd4f5e63",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "29a2e725-0fe8-5bab-bad0-6a2709cae976"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "RenewKey -> RenewOK",
+              "targetStep": "/api/3/workflow_steps/abc388c9-493b-5318-9c99-0f307f52b625",
+              "sourceStep": "/api/3/workflow_steps/699176dd-6040-5cf3-83c7-fedd7f75d9a8",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "6e40d688-fc4b-5b54-ba48-a3337e625d48"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "RenewOK -> WriteSecret",
+              "targetStep": "/api/3/workflow_steps/d2baca4e-e98e-5535-8070-d25ec60fcdde",
+              "sourceStep": "/api/3/workflow_steps/abc388c9-493b-5318-9c99-0f307f52b625",
+              "label": "Key renewed",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "2007a105-3955-5caf-960d-f0bf78ae5ecc"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "RenewOK -> RenewFailed",
+              "targetStep": "/api/3/workflow_steps/390210f9-da2b-5bf5-8273-f3d71b3eaf41",
+              "sourceStep": "/api/3/workflow_steps/abc388c9-493b-5318-9c99-0f307f52b625",
+              "label": "Renew failed",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "ee3e26a8-6107-5aa0-9e9a-f92098eec1d0"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "WriteSecret -> Written",
+              "targetStep": "/api/3/workflow_steps/cd37f5a8-6046-5707-8f87-41a0c2783aa5",
+              "sourceStep": "/api/3/workflow_steps/d2baca4e-e98e-5535-8070-d25ec60fcdde",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "6fc85a10-1713-59e2-b102-27441d23d8d9"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "Written -> StampMetadata",
+              "targetStep": "/api/3/workflow_steps/3ea2138f-c214-5de1-b880-f605506561ec",
+              "sourceStep": "/api/3/workflow_steps/cd37f5a8-6046-5707-8f87-41a0c2783aa5",
+              "label": "Stored in Vault",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "9a97f3f0-e218-5493-9c3a-c447df654829"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "Written -> WriteFailed",
+              "targetStep": "/api/3/workflow_steps/e7570151-e1ba-5955-b4fa-2dd2b9d8fdf6",
+              "sourceStep": "/api/3/workflow_steps/cd37f5a8-6046-5707-8f87-41a0c2783aa5",
+              "label": "Vault write failed",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "65014bf5-0233-579e-9e60-47c0db4851a8"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "StampMetadata -> VerifyNewKey",
+              "targetStep": "/api/3/workflow_steps/1f8b7b72-eb40-5377-a655-fd85d6da252e",
+              "sourceStep": "/api/3/workflow_steps/3ea2138f-c214-5de1-b880-f605506561ec",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "c8b5bc57-3d57-5e9b-b944-90195ea804ef"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "VerifyNewKey -> Renewed",
+              "targetStep": "/api/3/workflow_steps/295e4b8c-d1e9-5863-a0fd-39047000b782",
+              "sourceStep": "/api/3/workflow_steps/1f8b7b72-eb40-5377-a655-fd85d6da252e",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "1f977c4c-85a7-5b31-b95c-f04288eb7637"
+            }
+          ],
+          "groups": [
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: RenewKey",
+              "description": "Errors are caught so the child always ends on a result (a revoked key, say), and one bad key cannot stop the parent's loop.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "380",
+              "left": "540",
+              "height": "116",
+              "width": "440",
+              "uuid": "5b87fe4f-b36c-51ee-a358-166f4f5b7c20",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: WriteSecret",
+              "description": "Changes only api_key. Retried on network and server errors.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "640",
+              "left": "880",
+              "height": "94",
+              "width": "440",
+              "uuid": "e722ff17-2318-5b7b-a2d8-d59059fba2f6",
+              "recordTags": []
+            }
+          ],
+          "priority": "/api/3/picklists/9e8d41e4-8ada-4a2c-bd02-07f62c6d0a00",
+          "playbookOrigin": null,
+          "isEditable": true,
+          "uuid": "c115101d-845d-5757-8c43-2526b5d0c0da",
+          "owners": [],
+          "isPrivate": false
+        },
+        {
+          "@type": "Workflow",
+          "name": "Onboard FortiAIGate Key to Vault",
+          "aliasName": null,
+          "tag": "",
+          "recordTags": [],
+          "description": "API endpoint that creates a FortiAIGate virtual key for an app and stores it in a NEW HashiCorp Vault secret, tagged so the renewal playbooks can find it. POST a JSON body: secret_path (required), key_name (default: the secret path), workspace (name or id), providers (default openai), expires_in_days (default 7) and fields (an object of extra secret fields, for example base_url and model).\nThe secret path must be free: the run checks first and writes with check-and-set 0, so an existing secret is never overwritten. If the Vault write fails, the new key is revoked, so no working key is left outside Vault. The secret's metadata gets faig_key_id, faig_key_name, faig_expires_at and faig_created_at. Ends with key_name, secret_path, key_id, expires_at and outcome (created, path_in_use or write_failed). The default HashiCorp Vault KV configuration needs create on the data path and read and patch on the metadata path.",
+          "isActive": true,
+          "debug": true,
+          "singleRecordExecution": false,
+          "remoteExecutableFlag": 0,
+          "parameters": [
+            "api_body"
+          ],
+          "synchronous": false,
+          "lastModifyDate": 1792190180,
+          "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
+          "versions": [],
+          "triggerStep": "/api/3/workflow_steps/2553cfca-e72e-509a-b1ca-68f625096293",
+          "steps": [
+            {
+              "@type": "WorkflowStep",
+              "name": "Start",
+              "description": null,
+              "arguments": {
+                "route": "fortiaigate/onboard-key",
+                "authentication_methods": [
+                  ""
+                ],
+                "step_variables": {
+                  "input": {
+                    "params": {
+                      "api_body": "{{vars.request.data}}",
+                      "api_params": "{{vars.request.params}}"
+                    }
+                  }
+                },
+                "triggerOnSource": true,
+                "triggerOnReplicate": false,
+                "__triggerLimit": true
+              },
+              "status": null,
+              "top": "120",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/df26c7a2-4166-4ca5-91e5-548e24c01b5f",
+              "group": null,
+              "uuid": "2553cfca-e72e-509a-b1ca-68f625096293"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "ParseRequest",
+              "description": null,
+              "arguments": {
+                "request_body": "{{ vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true)) }}",
+                "secret_path": "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).secret_path | default('', true) | trim('/') }}",
+                "key_name": "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).key_name | default('', true) }}",
+                "workspace": "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).workspace | default('', true) }}",
+                "providers": "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).providers | default('openai', true) }}",
+                "expires_in_days": "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).expires_in_days | default(7, true) }}",
+                "fields": "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).fields | default({}, true) }}"
+              },
+              "status": null,
+              "top": "250",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "2491990c-bb25-5a4c-9d62-ad7ef7387e7d"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "CheckPathFree",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "read_metadata",
+                "config": "",
+                "params": {
+                  "path": "{{ vars.secret_path }}",
+                  "missing_ok": true
+                },
+                "version": "1.2.0",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Get Secret Metadata",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "380",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "da566cb1-2a12-586c-9a05-4b954d9eb560"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "PathFree",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Path is free",
+                    "condition": "{{ vars.secret_path and not vars.steps.CheckPathFree.data.exists }}",
+                    "step_iri": "/api/3/workflow_steps/df3bb51c-c3c7-5b55-a004-4551be91c2ba",
+                    "step_name": "CreateKey"
+                  },
+                  {
+                    "option": "Path in use (or none given)",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/a9978877-09fe-5c7a-814d-f49b6c1a030d",
+                    "step_name": "PathInUse"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "510",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "350de9f3-2e47-5d3e-8556-46c69e1e02e7"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "CreateKey",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "create_virtual_key",
+                "config": "",
+                "params": {
+                  "workspace_id": "{{ vars.workspace }}",
+                  "key_name": "{{ vars.key_name or vars.secret_path }}",
+                  "expires_at": "",
+                  "expires_in_days": "{{ vars.expires_in_days }}",
+                  "tpm": "",
+                  "rpm": "",
+                  "provider_ids": "{{ vars.providers }}"
+                },
+                "version": "1.6.0",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Create Virtual Key",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "640",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "df3bb51c-c3c7-5b55-a004-4551be91c2ba"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "StoreSecret",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "write_secret",
+                "config": "",
+                "params": {
+                  "path": "{{ vars.secret_path }}",
+                  "secret_data": "{{ vars.fields | combine({\"api_key\": vars.steps.CreateKey.data.new_secret}) | tojson }}",
+                  "create_only": true
+                },
+                "ignore_errors": true,
+                "version": "1.2.0",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Write Secret",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "770",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "1900afe7-6528-5a49-8963-f653c54c3c01"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "Stored",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Stored in Vault",
+                    "condition": "{{ (vars.steps.StoreSecret.data.version | default(0, true) | int) > 0 }}",
+                    "step_iri": "/api/3/workflow_steps/9b6f93ae-fe6c-5463-8bf8-6a53a57bb7a3",
+                    "step_name": "TagSecret"
+                  },
+                  {
+                    "option": "Vault write failed - undo the key",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/f46a8f33-5fcc-53f9-9dd0-fdcad70c0cd7",
+                    "step_name": "UndoKey"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "900",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "cc00e59a-3e44-53e5-859b-e7cae2a74ab3"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "UndoKey",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "revoke_virtual_key",
+                "config": "",
+                "params": {
+                  "key_id": "{{ vars.steps.CreateKey.data.id }}",
+                  "reason": "Onboarding failed: the secret could not be stored in Vault"
+                },
+                "version": "1.6.0",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Revoke Virtual Key",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "1030",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "f46a8f33-5fcc-53f9-9dd0-fdcad70c0cd7"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "TagSecret",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "patch_metadata",
+                "config": "",
+                "params": {
+                  "path": "{{ vars.secret_path }}",
+                  "custom_metadata": "{{ {\"faig_key_id\": vars.steps.CreateKey.data.id, \"faig_key_name\": vars.steps.CreateKey.data.keyName,\n    \"faig_expires_at\": vars.steps.CreateKey.data.expiresAt | default(\"\"),\n    \"faig_created_at\": vars.steps.CreateKey.data.createdAt | default(\"\")} | tojson }}"
+                },
+                "version": "1.2.0",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Update Secret Metadata",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "1030",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "9b6f93ae-fe6c-5463-8bf8-6a53a57bb7a3"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "VerifyKey",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "check_key",
+                "config": "",
+                "params": {
+                  "api_key": "{{ vars.steps.CreateKey.data.new_secret }}"
+                },
+                "version": "1.6.0",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -233,220 +1112,190 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
-              "uuid": "05b52e8f-a557-56ba-8096-205b9920ea7f"
+              "uuid": "9aed4661-c97c-57f0-bab6-3d749507a6b8"
             },
             {
               "@type": "WorkflowStep",
-              "name": "NewKeyValid",
+              "name": "PathInUse",
               "description": null,
               "arguments": {
-                "conditions": [
-                  {
-                    "option": "New key valid",
-                    "condition": "{{ vars.steps.VerifyNewKey.data.valid | default(false) }}",
-                    "step_iri": "/api/3/workflow_steps/3e345387-a2e4-5870-8de2-5a814523fe75",
-                    "step_name": "Done"
-                  },
-                  {
-                    "option": "New key invalid - run failed",
-                    "default": true,
-                    "step_iri": "/api/3/workflow_steps/e880b871-3306-5bca-b235-32df9e0a0f14",
-                    "step_name": "FailRotation"
-                  }
-                ]
+                "key_name": "",
+                "secret_path": "{{ vars.secret_path }}",
+                "key_id": "",
+                "expires_at": "",
+                "outcome": "{{ 'path_in_use' if vars.secret_path else 'secret_path_required' }}"
+              },
+              "status": null,
+              "top": "640",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "a9978877-09fe-5c7a-814d-f49b6c1a030d"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "WriteFailed",
+              "description": null,
+              "arguments": {
+                "key_name": "{{ vars.steps.CreateKey.data.keyName }}",
+                "secret_path": "{{ vars.secret_path }}",
+                "key_id": "{{ vars.steps.CreateKey.data.id }}",
+                "expires_at": "",
+                "outcome": "write_failed"
+              },
+              "status": null,
+              "top": "1160",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "f2ada835-af42-5ac0-b79c-ba7fa7487422"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "Created",
+              "description": null,
+              "arguments": {
+                "key_name": "{{ vars.steps.CreateKey.data.keyName }}",
+                "secret_path": "{{ vars.secret_path }}",
+                "key_id": "{{ vars.steps.CreateKey.data.id }}",
+                "expires_at": "{{ vars.steps.CreateKey.data.expiresAt | default(\"\") }}",
+                "outcome": "{{ 'created' if vars.steps.VerifyKey.data.valid | default(false) else 'created_unverified' }}"
               },
               "status": null,
               "top": "1290",
               "left": "200",
-              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
-              "group": null,
-              "uuid": "e8757c3d-50bb-5fed-bc54-2b006c1dcdf4"
-            },
-            {
-              "@type": "WorkflowStep",
-              "name": "AlreadyHealthy",
-              "description": null,
-              "arguments": {
-                "rotation_outcome": "no-op - stored key already valid",
-                "rotated": false
-              },
-              "status": null,
-              "top": "770",
-              "left": "880",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
-              "uuid": "fe03d5f7-021c-50e7-bd41-e3acb5b92cfa"
-            },
-            {
-              "@type": "WorkflowStep",
-              "name": "FailRotation",
-              "description": null,
-              "arguments": {
-                "rotation_outcome": "failed - new secret rejected by the data plane",
-                "rotated": false
-              },
-              "status": null,
-              "top": "1420",
-              "left": "1220",
-              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
-              "group": null,
-              "uuid": "e880b871-3306-5bca-b235-32df9e0a0f14"
-            },
-            {
-              "@type": "WorkflowStep",
-              "name": "Done",
-              "description": null,
-              "arguments": {
-                "key_id": "{{ vars.steps.RenewKey.data.key_id | default(\"\") }}",
-                "key_method": "{{ vars.steps.RenewKey.data.method | default(\"\") }}",
-                "rotation_result": "{{ vars.rotation_outcome | default(\"renewed - new secret stored in Vault and verified\") }}",
-                "rotated": "{{ vars.rotated | default(true) }}"
-              },
-              "status": null,
-              "top": "1420",
-              "left": "880",
-              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
-              "group": null,
-              "uuid": "3e345387-a2e4-5870-8de2-5a814523fe75"
+              "uuid": "976022f4-ec74-57de-8a04-49fd4ae4737d"
             }
           ],
           "routes": [
             {
               "@type": "WorkflowRoute",
-              "name": "Start -> ResolvePath",
-              "targetStep": "/api/3/workflow_steps/ee27d413-a39b-515a-8784-5aecb6ffc75b",
-              "sourceStep": "/api/3/workflow_steps/abc94d4b-1eda-523a-9790-8b8a20aa2327",
+              "name": "Start -> ParseRequest",
+              "targetStep": "/api/3/workflow_steps/2491990c-bb25-5a4c-9d62-ad7ef7387e7d",
+              "sourceStep": "/api/3/workflow_steps/2553cfca-e72e-509a-b1ca-68f625096293",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "0a1794bf-6488-52af-855b-d8e73bd59e40"
+              "uuid": "cbfdb6b2-9846-592d-93cd-562e84890e20"
             },
             {
               "@type": "WorkflowRoute",
-              "name": "ResolvePath -> ReadCurrentSecret",
-              "targetStep": "/api/3/workflow_steps/b5970aff-75e8-53f0-9fe3-cb7e0fde4664",
-              "sourceStep": "/api/3/workflow_steps/ee27d413-a39b-515a-8784-5aecb6ffc75b",
+              "name": "ParseRequest -> CheckPathFree",
+              "targetStep": "/api/3/workflow_steps/da566cb1-2a12-586c-9a05-4b954d9eb560",
+              "sourceStep": "/api/3/workflow_steps/2491990c-bb25-5a4c-9d62-ad7ef7387e7d",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "6996ce37-1e99-5d91-a16d-66ed66535f09"
+              "uuid": "e4b1bb12-9d77-51d4-89ce-50cf01696a9b"
             },
             {
               "@type": "WorkflowRoute",
-              "name": "ReadCurrentSecret -> CheckCurrentKey",
-              "targetStep": "/api/3/workflow_steps/50772d40-7011-5beb-9b28-be9c3cdb20c4",
-              "sourceStep": "/api/3/workflow_steps/b5970aff-75e8-53f0-9fe3-cb7e0fde4664",
+              "name": "CheckPathFree -> PathFree",
+              "targetStep": "/api/3/workflow_steps/350de9f3-2e47-5d3e-8556-46c69e1e02e7",
+              "sourceStep": "/api/3/workflow_steps/da566cb1-2a12-586c-9a05-4b954d9eb560",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "36672a28-11ef-56a6-993f-8f689cfa517e"
+              "uuid": "43991afb-29b1-5758-a781-8910025d59ce"
             },
             {
               "@type": "WorkflowRoute",
-              "name": "CheckCurrentKey -> KeyValid",
-              "targetStep": "/api/3/workflow_steps/51cb83cf-19fc-5d4c-9420-2ae732d0f1ae",
-              "sourceStep": "/api/3/workflow_steps/50772d40-7011-5beb-9b28-be9c3cdb20c4",
+              "name": "PathFree -> CreateKey",
+              "targetStep": "/api/3/workflow_steps/df3bb51c-c3c7-5b55-a004-4551be91c2ba",
+              "sourceStep": "/api/3/workflow_steps/350de9f3-2e47-5d3e-8556-46c69e1e02e7",
+              "label": "Path is free",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "b6be82c6-d841-5e1b-b720-49890d53fd1a"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "PathFree -> PathInUse",
+              "targetStep": "/api/3/workflow_steps/a9978877-09fe-5c7a-814d-f49b6c1a030d",
+              "sourceStep": "/api/3/workflow_steps/350de9f3-2e47-5d3e-8556-46c69e1e02e7",
+              "label": "Path in use (or none given)",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "0245e517-31cc-5624-b603-d4059f7587d3"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "CreateKey -> StoreSecret",
+              "targetStep": "/api/3/workflow_steps/1900afe7-6528-5a49-8963-f653c54c3c01",
+              "sourceStep": "/api/3/workflow_steps/df3bb51c-c3c7-5b55-a004-4551be91c2ba",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "0821da7f-d3c4-597a-9891-a709a2b10574"
+              "uuid": "c7ffa139-1ee4-533b-a34f-7b58ee53dc6f"
             },
             {
               "@type": "WorkflowRoute",
-              "name": "KeyValid -> RenewKey",
-              "targetStep": "/api/3/workflow_steps/00a29d8e-076f-5d26-88f4-35d016e77a5e",
-              "sourceStep": "/api/3/workflow_steps/51cb83cf-19fc-5d4c-9420-2ae732d0f1ae",
-              "label": "Invalid - renew",
-              "isExecuted": false,
-              "group": null,
-              "uuid": "302b1e41-f090-5ec0-a9ea-7bf8cddb66b3"
-            },
-            {
-              "@type": "WorkflowRoute",
-              "name": "KeyValid -> AlreadyHealthy",
-              "targetStep": "/api/3/workflow_steps/fe03d5f7-021c-50e7-bd41-e3acb5b92cfa",
-              "sourceStep": "/api/3/workflow_steps/51cb83cf-19fc-5d4c-9420-2ae732d0f1ae",
-              "label": "Valid - nothing to do",
-              "isExecuted": false,
-              "group": null,
-              "uuid": "ca51694f-fa96-5b75-8ae0-a34a54573ba3"
-            },
-            {
-              "@type": "WorkflowRoute",
-              "name": "RenewKey -> BuildPayload",
-              "targetStep": "/api/3/workflow_steps/84314bf7-a8b3-5227-b0ba-83b4cee1a0e8",
-              "sourceStep": "/api/3/workflow_steps/00a29d8e-076f-5d26-88f4-35d016e77a5e",
+              "name": "StoreSecret -> Stored",
+              "targetStep": "/api/3/workflow_steps/cc00e59a-3e44-53e5-859b-e7cae2a74ab3",
+              "sourceStep": "/api/3/workflow_steps/1900afe7-6528-5a49-8963-f653c54c3c01",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "39c7f1a4-b423-5550-bfab-c762e024ec1b"
+              "uuid": "c8aa4f9b-66fd-582c-a4cd-c0d29d0af037"
             },
             {
               "@type": "WorkflowRoute",
-              "name": "BuildPayload -> WriteSecret",
-              "targetStep": "/api/3/workflow_steps/f4228f02-1f80-5153-8909-4691589df183",
-              "sourceStep": "/api/3/workflow_steps/84314bf7-a8b3-5227-b0ba-83b4cee1a0e8",
+              "name": "Stored -> TagSecret",
+              "targetStep": "/api/3/workflow_steps/9b6f93ae-fe6c-5463-8bf8-6a53a57bb7a3",
+              "sourceStep": "/api/3/workflow_steps/cc00e59a-3e44-53e5-859b-e7cae2a74ab3",
+              "label": "Stored in Vault",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "7e083b15-aad6-5373-82a4-f944a74a9a84"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "Stored -> UndoKey",
+              "targetStep": "/api/3/workflow_steps/f46a8f33-5fcc-53f9-9dd0-fdcad70c0cd7",
+              "sourceStep": "/api/3/workflow_steps/cc00e59a-3e44-53e5-859b-e7cae2a74ab3",
+              "label": "Vault write failed - undo the key",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "5552ec8f-5731-5d18-b3a1-eca2ad06de1f"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "UndoKey -> WriteFailed",
+              "targetStep": "/api/3/workflow_steps/f2ada835-af42-5ac0-b79c-ba7fa7487422",
+              "sourceStep": "/api/3/workflow_steps/f46a8f33-5fcc-53f9-9dd0-fdcad70c0cd7",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "1225defd-6a34-5420-8d23-aa3dca39f6a8"
+              "uuid": "34e9a347-43fc-5c3b-8760-1ad4616dedab"
             },
             {
               "@type": "WorkflowRoute",
-              "name": "WriteSecret -> VerifyNewKey",
-              "targetStep": "/api/3/workflow_steps/05b52e8f-a557-56ba-8096-205b9920ea7f",
-              "sourceStep": "/api/3/workflow_steps/f4228f02-1f80-5153-8909-4691589df183",
+              "name": "TagSecret -> VerifyKey",
+              "targetStep": "/api/3/workflow_steps/9aed4661-c97c-57f0-bab6-3d749507a6b8",
+              "sourceStep": "/api/3/workflow_steps/9b6f93ae-fe6c-5463-8bf8-6a53a57bb7a3",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "199f657d-0e12-582e-8fe1-ca7d6fd4b918"
+              "uuid": "55256455-44af-5cf5-bc2f-a3a559d204ba"
             },
             {
               "@type": "WorkflowRoute",
-              "name": "VerifyNewKey -> NewKeyValid",
-              "targetStep": "/api/3/workflow_steps/e8757c3d-50bb-5fed-bc54-2b006c1dcdf4",
-              "sourceStep": "/api/3/workflow_steps/05b52e8f-a557-56ba-8096-205b9920ea7f",
+              "name": "VerifyKey -> Created",
+              "targetStep": "/api/3/workflow_steps/976022f4-ec74-57de-8a04-49fd4ae4737d",
+              "sourceStep": "/api/3/workflow_steps/9aed4661-c97c-57f0-bab6-3d749507a6b8",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "78086f57-d217-5cb0-97a5-c12a7e0ba78d"
-            },
-            {
-              "@type": "WorkflowRoute",
-              "name": "NewKeyValid -> Done",
-              "targetStep": "/api/3/workflow_steps/3e345387-a2e4-5870-8de2-5a814523fe75",
-              "sourceStep": "/api/3/workflow_steps/e8757c3d-50bb-5fed-bc54-2b006c1dcdf4",
-              "label": "New key valid",
-              "isExecuted": false,
-              "group": null,
-              "uuid": "8c86e4ec-d272-5b27-b150-f4fb2fceb52b"
-            },
-            {
-              "@type": "WorkflowRoute",
-              "name": "NewKeyValid -> FailRotation",
-              "targetStep": "/api/3/workflow_steps/e880b871-3306-5bca-b235-32df9e0a0f14",
-              "sourceStep": "/api/3/workflow_steps/e8757c3d-50bb-5fed-bc54-2b006c1dcdf4",
-              "label": "New key invalid - run failed",
-              "isExecuted": false,
-              "group": null,
-              "uuid": "13684cb2-0d85-58cf-8180-6c490a4b48d7"
-            },
-            {
-              "@type": "WorkflowRoute",
-              "name": "AlreadyHealthy -> Done",
-              "targetStep": "/api/3/workflow_steps/3e345387-a2e4-5870-8de2-5a814523fe75",
-              "sourceStep": "/api/3/workflow_steps/fe03d5f7-021c-50e7-bd41-e3acb5b92cfa",
-              "label": null,
-              "isExecuted": false,
-              "group": null,
-              "uuid": "438bf020-0861-5940-b7d1-0de8d1efe279"
+              "uuid": "5d289b19-5f5c-5a78-a1d1-0be9f807c67f"
             }
           ],
           "groups": [
             {
               "@type": "WorkflowGroup",
-              "name": "Note: ResolvePath",
-              "description": "The Vault path of the secret holding the key, and the field it is stored in. Read from the playbook parameters (manual run, schedule, child call) or, for an API trigger that sends them as top-level variables, from vars.",
+              "name": "Note: ParseRequest",
+              "description": "The API body arrives as a raw JSON string in vars.request.body.",
               "type": "note",
               "isCollapsed": false,
               "hasTriggerStep": false,
@@ -455,32 +1304,15 @@
               "reusable": false,
               "top": "250",
               "left": "540",
-              "height": "138",
+              "height": "94",
               "width": "440",
-              "uuid": "31adc29f-74ee-53b8-8890-08b0453440ca",
+              "uuid": "3fe66077-c716-58af-a8e1-05791721f82a",
               "recordTags": []
             },
             {
               "@type": "WorkflowGroup",
-              "name": "Note: KeyValid",
-              "description": "Branch on the data-plane verdict for the stored key.",
-              "type": "note",
-              "isCollapsed": false,
-              "hasTriggerStep": false,
-              "hideInLogs": true,
-              "metadata": [],
-              "reusable": false,
-              "top": "640",
-              "left": "1220",
-              "height": "72",
-              "width": "440",
-              "uuid": "455e7dfc-a5ff-5fb9-aecf-92bd5cae8868",
-              "recordTags": []
-            },
-            {
-              "@type": "WorkflowGroup",
-              "name": "Note: RenewKey",
-              "description": "Same key, new secret. FortiAIGate only rotates an active key, so an expired one is extended first.",
+              "name": "Note: StoreSecret",
+              "description": "Check-and-set 0 - refused if anything was written there meanwhile.",
               "type": "note",
               "isCollapsed": false,
               "hasTriggerStep": false,
@@ -488,33 +1320,16 @@
               "metadata": [],
               "reusable": false,
               "top": "770",
-              "left": "1220",
+              "left": "540",
               "height": "94",
               "width": "440",
-              "uuid": "f5ccdec1-9283-5f9b-a0bb-6902a6ec8a0f",
+              "uuid": "21a7a81d-079b-56d9-af59-d472df4c252a",
               "recordTags": []
             },
             {
               "@type": "WorkflowGroup",
-              "name": "Note: BuildPayload",
-              "description": "KV v2 writes create a new version and drop omitted fields, so the new secret data is the whole current secret with only the key field replaced. Built as a JSON string because connector params are strings.",
-              "type": "note",
-              "isCollapsed": false,
-              "hasTriggerStep": false,
-              "hideInLogs": true,
-              "metadata": [],
-              "reusable": false,
-              "top": "900",
-              "left": "540",
-              "height": "138",
-              "width": "440",
-              "uuid": "4f2a4394-6978-5a37-9f0f-0435789a220b",
-              "recordTags": []
-            },
-            {
-              "@type": "WorkflowGroup",
-              "name": "Note: NewKeyValid",
-              "description": "The new secret must validate; anything else fails the run.",
+              "name": "Note: Created",
+              "description": "Terminal - the FortiAIGate key name and the Vault path it is stored at.",
               "type": "note",
               "isCollapsed": false,
               "hasTriggerStep": false,
@@ -522,51 +1337,17 @@
               "metadata": [],
               "reusable": false,
               "top": "1290",
-              "left": "1560",
+              "left": "540",
               "height": "94",
               "width": "440",
-              "uuid": "0f4d775a-1fd6-5f0c-8a07-876b2434cf7e",
-              "recordTags": []
-            },
-            {
-              "@type": "WorkflowGroup",
-              "name": "Note: FailRotation",
-              "description": "Reachable only when the new secret does not validate.",
-              "type": "note",
-              "isCollapsed": false,
-              "hasTriggerStep": false,
-              "hideInLogs": true,
-              "metadata": [],
-              "reusable": false,
-              "top": "1420",
-              "left": "1560",
-              "height": "72",
-              "width": "440",
-              "uuid": "8bbb6a68-437e-58c6-a07c-6618ad15e4e0",
-              "recordTags": []
-            },
-            {
-              "@type": "WorkflowGroup",
-              "name": "Note: Done",
-              "description": "Terminal summary.",
-              "type": "note",
-              "isCollapsed": false,
-              "hasTriggerStep": false,
-              "hideInLogs": true,
-              "metadata": [],
-              "reusable": false,
-              "top": "1512",
-              "left": "1560",
-              "height": "72",
-              "width": "440",
-              "uuid": "00b7074a-85a9-56c7-aa71-7cfa753b392f",
+              "uuid": "9df73199-f74a-5c37-ae9a-c18d8e75247d",
               "recordTags": []
             }
           ],
           "priority": "/api/3/picklists/9e8d41e4-8ada-4a2c-bd02-07f62c6d0a00",
           "playbookOrigin": null,
           "isEditable": true,
-          "uuid": "ff36ab54-a507-5be7-8806-7724a323d7c7",
+          "uuid": "eaf75027-d46d-514d-8f03-b3268d08baab",
           "owners": [],
           "isPrivate": false
         }

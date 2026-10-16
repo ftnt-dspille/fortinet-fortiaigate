@@ -1,7 +1,7 @@
 {
   "name": "fortinet-fortiaigate",
   "label": "Fortinet FortiAIGate",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Fortinet FortiAIGate is an inline AI gateway that brokers and guards access to large language model providers. This connector manages the gateway's virtual keys - the data-plane API keys that client applications present to the gateway's OpenAI-compatible endpoint. Operations cover listing and inspecting virtual keys, creating keys (the gateway returns the key secret exactly once), rotating a key in place (invalidating the old secret and issuing a new one), revoking keys, setting key expiry and rate limits, and validating a key against the data-plane models endpoint. Built for the FortiAIGate 8.x management API (session cookie plus per-mutation CSRF, admin console JSON API). Version 1.1 adds governed AI usage: chat completions through the data plane, guardrail testing, policy and provider visibility, workspace budgets and audit logs. Version 1.4 works with a workspace login as well as an organization administrator: the connector reads the login's role and, for a workspace admin or member, manages that workspace's keys, guardrails, policies, detectors and logs.",
   "publisher": "Fortinet",
   "category": "Analytics and SIEM",
@@ -155,6 +155,67 @@
       }
     },
     {
+      "operation": "list_expiring_virtual_keys",
+      "title": "List Expiring Virtual Keys",
+      "description": "List the virtual keys that expire within a number of days, soonest first, and (by default) those that already have. A key with no expiry, and a revoked or suspended key, is never listed. Feed the key ids to a renewal flow.",
+      "enabled": true,
+      "annotation": "list_expiring_virtual_keys",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Workspace ID",
+          "type": "select",
+          "name": "workspace_id",
+          "tooltip": "(Optional) Only list virtual keys in this workspace.",
+          "description": "(Optional) Only keys in this workspace. Empty lists every key the login can see.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_workspace_options"
+        },
+        {
+          "title": "Within (Days)",
+          "type": "text",
+          "name": "within_days",
+          "placeholder": "e.g. 7",
+          "description": "(Optional) List keys that expire within this many days from now. Default 7; 0 lists only expired keys.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "Include Expired",
+          "type": "checkbox",
+          "name": "include_expired",
+          "description": "Also list keys that have already expired. Default on.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "value": true
+        }
+      ],
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array"
+          },
+          "key_ids": {
+            "type": "array"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "within_days": {
+            "type": "number"
+          },
+          "checked_at": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
       "operation": "get_virtual_key",
       "title": "Get Virtual Key",
       "description": "Retrieve a single virtual key record by its id.",
@@ -217,6 +278,16 @@
           "visible": true
         },
         {
+          "title": "Expires In (Days)",
+          "type": "text",
+          "name": "expires_in_days",
+          "placeholder": "e.g. 30",
+          "description": "(Optional) Expire the key this many days from now. Ignored when Expires At is set.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        },
+        {
           "title": "TPM",
           "type": "text",
           "name": "tpm",
@@ -235,12 +306,34 @@
           "required": false,
           "editable": true,
           "visible": true
+        },
+        {
+          "title": "Providers",
+          "type": "text",
+          "name": "provider_ids",
+          "placeholder": "e.g. openai",
+          "description": "(Optional) AI provider ids the key may use, comma-separated; the key gets every model of each. FortiAIGate 8.0.2 requires model access, so a key created without it is refused.",
+          "required": false,
+          "editable": true,
+          "visible": true
         }
       ],
       "output_schema": {
         "type": "object",
         "properties": {
           "secretKey": {
+            "type": "string"
+          },
+          "new_secret": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "keyName": {
+            "type": "string"
+          },
+          "expiresAt": {
             "type": "string"
           }
         }
@@ -351,7 +444,7 @@
     {
       "operation": "renew_virtual_key",
       "title": "Renew Virtual Key",
-      "description": "Give a virtual key a new secret while keeping the same key: same id, name, limits, policies and model access. FortiAIGate only rotates an active key, so an expired key is first extended (Extend By, default 30 days) and then rotated; an active key is rotated straight away. A revoked or suspended key is refused and nothing is changed. Pass the key (Key ID) or its secret (API Key). The new secret is returned as new_secret and is shown only once - store it immediately, for example in HashiCorp Vault. The old secret stops working at once.",
+      "description": "Give a virtual key a new secret, keeping its id, name, limits, policies and model access. The expiry moves to Extend By (Days) from now when it would come sooner - so a key renewed ahead of its expiry does not expire anyway days later - and is never shortened. An expired key is extended first, because FortiAIGate only rotates an active key. A key with no expiry is only rotated. A revoked or suspended key is refused. If the rotate fails after the extend, the original expiry is put back (an expired key is revoked if that also fails), so the old secret never stays working. The new secret is shown once - store it straight away.",
       "enabled": true,
       "annotation": "renew_virtual_key",
       "category": "containment",
@@ -379,7 +472,7 @@
           "title": "Extend By (Days)",
           "type": "text",
           "name": "expires_in_days",
-          "description": "(Optional) Used only when the key has expired: its new expiry, in days from now. Default 30. An active key keeps its expiry.",
+          "description": "(Optional) New expiry this many days from now, applied when the key would expire sooner. Default 30, at most 3650.",
           "required": false,
           "editable": true,
           "visible": true,
@@ -402,6 +495,9 @@
             "type": "string"
           },
           "new_secret": {
+            "type": "string"
+          },
+          "old_expires_at": {
             "type": "string"
           }
         }
