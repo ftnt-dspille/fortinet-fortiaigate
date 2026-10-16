@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.6.1",
+      "name": "Sample - Fortinet FortiAIGate - 1.6.2",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -114,7 +114,7 @@
                   "within_days": "{{ vars.within_days }}",
                   "include_expired": true
                 },
-                "version": "1.6.1",
+                "version": "1.6.2",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "List Expiring Virtual Keys",
                 "step_variables": [],
@@ -486,7 +486,7 @@
                   "expires_in_days": "{{ vars.extend_days }}"
                 },
                 "ignore_errors": true,
-                "version": "1.6.1",
+                "version": "1.6.2",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Renew Virtual Key",
                 "step_variables": [],
@@ -617,7 +617,7 @@
                 "params": {
                   "api_key": "{{ vars.steps.RenewKey.data.new_secret }}"
                 },
-                "version": "1.6.1",
+                "version": "1.6.2",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -973,7 +973,7 @@
                   "rpm": "",
                   "provider_ids": "{{ vars.providers }}"
                 },
-                "version": "1.6.1",
+                "version": "1.6.2",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Create Virtual Key",
                 "step_variables": [],
@@ -1052,7 +1052,7 @@
                   "key_id": "{{ vars.steps.CreateKey.data.id }}",
                   "reason": "Onboarding failed: the secret could not be stored in Vault"
                 },
-                "version": "1.6.1",
+                "version": "1.6.2",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Revoke Virtual Key",
                 "step_variables": [],
@@ -1101,7 +1101,7 @@
                 "params": {
                   "api_key": "{{ vars.steps.CreateKey.data.new_secret }}"
                 },
-                "version": "1.6.1",
+                "version": "1.6.2",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],

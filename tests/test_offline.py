@@ -745,3 +745,12 @@ def test_an_id_from_playbook_input_cannot_leave_its_path_segment(fake, config, e
     sent = [p for _, p in fake.paths]
     assert any('%2F' in p or '%3F' in p or '%23' in p for p in sent), sent
     assert all(p.count('/') <= 6 and '..' not in p.split('/') for p in sent), sent
+
+
+@pytest.mark.parametrize('bad', ['..', '.', ' .. '])
+def test_a_dot_id_is_refused_before_any_call(fake, config, bad):
+    from fortiaigate.connections import ConnectorError
+    fake.paths.clear()
+    with pytest.raises(ConnectorError, match='Invalid id'):
+        ops.get_virtual_key(config, {'key_id': bad})
+    assert not [p for _, p in fake.paths if 'virtual-keys' in p]

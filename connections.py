@@ -69,7 +69,11 @@ def _seg(value) -> str:
     Vault metadata tag), so '/' and '..' must not be able to steer the admin
     session to another route."""
     from urllib.parse import quote
-    return quote(str(value), safe='')
+    text = str(value if value is not None else '').strip()
+    if text in ('', '.', '..'):
+        # quote() leaves dots alone, so '..' would still climb a level.
+        raise ConnectorError('Invalid id {0!r}: an id cannot be empty, "." or ".."'.format(text))
+    return quote(text, safe='')
 
 
 def normalize_server(server: str) -> str:

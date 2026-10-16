@@ -1,5 +1,11 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.2
+
+- An id of `.` or `..` (or an empty one) is refused before any API call. URL
+  encoding leaves dots alone, so in 1.6.1 an id of exactly `..` could still climb
+  one level of the API path.
+
 ## 1.6.1
 
 - Every id put into an API path (key, workspace, policy, guardrail, detector) is
