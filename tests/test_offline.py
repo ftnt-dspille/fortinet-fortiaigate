@@ -64,6 +64,21 @@ def test_a_workspace_member_login_fails_the_health_check(fake, config):
         Connector().check_health(config)
 
 
+def test_a_workspace_admin_login_passes_the_health_check(fake, config):
+    # 8.0.2's /api/v1/me/workspaces says "admin", not "workspace_admin" (live-verified).
+    _workspace_login(fake)
+    assert Connector().check_health(config) == 'ok'
+
+
+def test_a_member_is_told_what_to_change_when_an_action_is_refused(fake, config):
+    _workspace_login(fake)
+    fake.role = 'workspace_member'
+    with pytest.raises(ConnectorError) as err:
+        run(config, 'list_virtual_keys')
+    assert 'make this user a workspace admin' in str(err.value)
+    assert 'Workspace administrator access required' in str(err.value)  # the gateway's answer too
+
+
 def test_every_operation_is_dispatched_and_listed_in_info_json():
     info = json.loads((REPO / 'info.json').read_text())
     listed = {o['operation'] for o in info['operations']}
@@ -87,7 +102,7 @@ def test_the_library_is_the_only_http_dependency():
 
 
 def test_unknown_operation_is_refused(fake, config):
-    with pytest.raises(ValueError, match='Unknown operation'):
+    with pytest.raises(ConnectorError, match='Unknown operation'):
         run(config, 'no_such_operation', {})
 
 
@@ -126,21 +141,26 @@ def test_an_unknown_key_is_a_connector_error(fake, config):
 def test_create_virtual_key_returns_the_secret_once(fake, config):
     created = run(config, 'create_virtual_key', {'workspace_id': 'Default', 'key_name': 'delta'})
     assert created['secretKey'].startswith('faig_')
-    assert fake.last_create_body == {'keyName': 'delta'}
+    # 8.0.2 refuses a key with no model access: the workspace's enabled providers are granted.
+    assert fake.last_create_body == {'keyName': 'delta', 'providerAccess': [
+        {'providerId': 'openai', 'allKeys': True, 'allModels': True}]}
     assert 'delta' in [k['keyName'] for k in run(config, 'list_virtual_keys')]
 
 
 def test_create_needs_a_workspace_for_an_org_admin(fake, config):
-    with pytest.raises(ValueError, match='workspace_id is required'):
+    with pytest.raises(ConnectorError, match='workspace_id is required'):
         run(config, 'create_virtual_key', {'key_name': 'x'})
 
 
 def test_update_sends_the_writable_fields_only(fake, config):
+    # The step editor sends text; 8.0.2 422s a numeric string ("expected integer").
     run(config, 'update_virtual_key', {'key_id': K_ALPHA, 'tpm': '500'})
     body = fake.last_put_body
-    assert body['tpm'] == '500' and body['keyName'] == 'alpha'
+    assert body['tpm'] == 500 and body['keyName'] == 'alpha'
     assert 'keyPreview' not in body
-    assert run(config, 'get_virtual_key', {'key_id': K_ALPHA})['tpm'] == '500'
+    assert run(config, 'get_virtual_key', {'key_id': K_ALPHA})['tpm'] == 500
+    with pytest.raises(ConnectorError, match='rpm must be a whole number'):
+        run(config, 'update_virtual_key', {'key_id': K_ALPHA, 'rpm': 'fast'})
 
 
 def test_update_resolves_policy_names(fake, config):
@@ -157,7 +177,7 @@ def test_rotate_by_name_and_by_secret(fake, config):
 
 
 def test_rotate_needs_a_key(fake, config):
-    with pytest.raises(ValueError, match='key_id or api_key is required'):
+    with pytest.raises(ConnectorError, match='key_id or api_key is required'):
         run(config, 'rotate_virtual_key', {'key_id': '', 'api_key': ''})
 
 
@@ -224,7 +244,7 @@ def test_revoke_sends_the_given_reason(fake, config):
 
 
 def test_revoke_needs_a_key(fake, config):
-    with pytest.raises(ValueError, match='key_id is required'):
+    with pytest.raises(ConnectorError, match='key_id is required'):
         run(config, 'revoke_virtual_key', {})
 
 
@@ -233,7 +253,7 @@ def test_check_key_valid_and_invalid(fake, config):
         'valid': True, 'model_count': 3, 'http_status': 200}
     assert run(config, 'check_key', {'api_key': 'faig_wrong'}) == {
         'valid': False, 'model_count': 0, 'http_status': 401}
-    with pytest.raises(ValueError, match='api_key is required'):
+    with pytest.raises(ConnectorError, match='api_key is required'):
         run(config, 'check_key', {'api_key': ''})
 
 
@@ -280,7 +300,7 @@ def test_test_guardrail_clean_text_is_allowed(fake, config):
 
 
 def test_test_guardrail_needs_a_target(fake, config):
-    with pytest.raises(ValueError, match='detector_ids or guardrail_id is required'):
+    with pytest.raises(ConnectorError, match='detector_ids or guardrail_id is required'):
         run(config, 'test_guardrail', {'input_text': 'x'})
 
 
@@ -292,7 +312,7 @@ def test_list_ai_providers(fake, config):
 def test_workspace_budget_by_name_and_default(fake, config):
     budget = run(config, 'get_workspace_budget', {'workspace_id': 'Research'})
     assert budget == {'spend': 1.5, 'budget': 10, 'budgetCycle': 'monthly'}
-    with pytest.raises(ValueError, match='workspace_id is required'):
+    with pytest.raises(ConnectorError, match='workspace_id is required'):
         run(config, 'get_workspace_budget', {})
 
 
@@ -347,7 +367,7 @@ def test_chat_completion_returns_the_openai_completion(fake, config):
 def test_chat_completion_rejects_bad_messages(fake, config):
     with pytest.raises(ConnectorError, match='messages must be a JSON list'):
         run(config, 'chat_completion', {'api_key': GOOD_KEY, 'model': 'm', 'messages': 'not json'})
-    with pytest.raises(ValueError, match='non-empty list'):
+    with pytest.raises(ConnectorError, match='non-empty list'):
         run(config, 'chat_completion', {'api_key': GOOD_KEY, 'model': 'm', 'messages': '[]'})
 
 
@@ -442,7 +462,7 @@ def test_a_workspace_login_creates_rotates_and_revokes_its_keys(fake, config):
     _workspace_login(fake)
     created = run(config, 'create_virtual_key', {'key_name': 'mine'})
     assert created['secretKey'].startswith('faig_')
-    assert fake.last_create_body == {'keyName': 'mine'}
+    assert fake.last_create_body['providerAccess'][0]['providerId'] == 'openai'
     assert created['workspace']['id'] == WS_DEFAULT
     assert run(config, 'rotate_virtual_key', {'key_id': 'mine'})['secretKey'].startswith('faig_')
     run(config, 'update_virtual_key', {'key_id': 'mine', 'rpm': '10'})
@@ -459,8 +479,10 @@ def test_a_workspace_login_lists_its_own_workspaces(fake, config):
 
 def test_several_workspaces_need_one_named_by_the_configuration_or_the_action(fake, config):
     _workspace_login(fake, (WS_DEFAULT, WS_RESEARCH))
-    assert Connector().check_health(config) == 'ok'
-    with pytest.raises(ValueError, match='member of 2 workspaces'):
+    with pytest.raises(ConnectorError, match='set Workspace'):
+        Connector().check_health(config)
+    assert Connector().check_health(dict(config, workspace='Research')) == 'ok'
+    with pytest.raises(ConnectorError, match='member of 2 workspaces.*set Workspace in the configuration'):
         run(config, 'list_guardrails')
     run(dict(config, workspace='Research'), 'list_guardrails')
     assert fake.paths[-1] == ('GET', '/api/v1/workspaces/{0}/guardrails'.format(WS_RESEARCH))
@@ -569,25 +591,25 @@ def test_the_default_range_is_24_hours(fake, config):
 
 
 def test_until_needs_since(fake, config):
-    with pytest.raises(ValueError, match='until needs since'):
+    with pytest.raises(ConnectorError, match='until needs since'):
         run(config, 'get_blocked_traffic', {'until': '2026-10-15T10:10:00Z'})
 
 
 def test_until_must_be_later_than_since(fake, config):
-    with pytest.raises(ValueError, match='later than since'):
+    with pytest.raises(ConnectorError, match='later than since'):
         run(config, 'get_blocked_traffic', {'since': '2026-10-15T10:10:00Z',
                                             'until': '2026-10-15T10:00:00Z'})
 
 
 def test_a_bad_since_is_named_in_the_error(fake, config):
-    with pytest.raises(ValueError, match='since must be epoch milliseconds'):
+    with pytest.raises(ConnectorError, match='since must be epoch milliseconds'):
         run(config, 'get_blocked_traffic', {'since': 'yesterday'})
 
 
 def test_max_items_keeps_the_newest(fake, config):
     records = run(config, 'get_blocked_traffic', {'since': '2026-10-15T10:00:00Z', 'max_items': '1'})
     assert [r['uuid'] for r in records] == ['e0000000-0000-4000-8000-000000000002']
-    with pytest.raises(ValueError, match='at least 1'):
+    with pytest.raises(ConnectorError, match='at least 1'):
         run(config, 'get_blocked_traffic', {'since': '2026-10-15T10:00:00Z', 'max_items': '0'})
 
 

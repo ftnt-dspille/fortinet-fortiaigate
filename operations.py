@@ -28,6 +28,44 @@ operations = {}
 # turns these into a ConnectorError, which FortiSOAR shows as the message.
 API_ERRORS = (FaigError, LookupError, OSError, http.client.HTTPException)
 
+# /api/v1/me/workspaces names a membership "admin" or "member" on 8.0.2 (user records
+# say "workspace_admin"/"workspace_member"); accept both spellings.
+MEMBER_ROLES = ('member', 'workspace_member')
+NEEDS_WS_ADMIN = 'Workspace administrator access required'
+NEEDS_ORG_ADMIN = 'Organization-level access required'
+
+
+def member_message(username) -> str:
+    return ('{0} is only a member of its FortiAIGate workspace. FortiAIGate lets only a '
+            'workspace admin read keys, guardrails, policies and logs or revoke keys: make this '
+            'user a workspace admin, or use an organization administrator.'.format(username))
+
+
+def friendly_error(err, username) -> str:
+    """The message a SOAR user sees: a role refusal says what to change, then the
+    gateway's own answer."""
+    text = str(err)
+    if isinstance(err, ValueError) and text.endswith('pass workspace= or ws_id'):
+        return text.replace('pass workspace= or ws_id',
+                            'set Workspace in the configuration, or choose one in this action')
+    if getattr(err, 'status', None) == 403 and NEEDS_WS_ADMIN in text:
+        return '{0} ({1})'.format(member_message(username), text)
+    if getattr(err, 'status', None) == 403 and NEEDS_ORG_ADMIN in text:
+        return ('This action needs a FortiAIGate organization administrator; {0} is a workspace '
+                'login. ({1})'.format(username, text))
+    return text
+
+
+def _int_opt(params, name):
+    """An optional whole number (FortiAIGate 422s a numeric string)."""
+    value = _opt(params, name)
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except ValueError:
+        raise ValueError('{0} must be a whole number, not {1!r}'.format(name, value)) from None
+
 
 def _client(config):
     # One execute() shares one client (connector.py), so the login and the role are
@@ -159,12 +197,17 @@ def create_virtual_key(config, params):
     workspace = _opt(params, 'workspace_id') or client.default_workspace()
     if not workspace:
         raise ValueError('workspace_id is required')
+    # 8.0.2 refuses a key with no model access (422 "At least one model or model group is
+    # required"): grant every provider the workspace has an enabled model from.
+    providers = [p['providerId'] for p in client.grantable_providers(workspace)
+                 if any(m.get('effectiveEnabled', m.get('enabled')) for m in p.get('models') or [])]
     return client.create_virtual_key(
         workspace,
         _required(params, 'key_name'),
+        provider_ids=providers or None,
         expires_at=_opt(params, 'expires_at'),
-        tpm=_opt(params, 'tpm'),
-        rpm=_opt(params, 'rpm'),
+        tpm=_int_opt(params, 'tpm'),
+        rpm=_int_opt(params, 'rpm'),
     )
 
 
@@ -175,8 +218,8 @@ def update_virtual_key(config, params):
     return _client(config).update_virtual_key(
         _required(params, 'key_id'),
         expires_at=_opt(params, 'expires_at'),
-        tpm=_opt(params, 'tpm'),
-        rpm=_opt(params, 'rpm'),
+        tpm=_int_opt(params, 'tpm'),
+        rpm=_int_opt(params, 'rpm'),
         policy_ids=_ids_list(params.get('policy_ids')) or None,
     )
 
@@ -496,17 +539,20 @@ def _check_health(config):
     client = _client(config)
     try:
         client.me()
-        mine = [] if client.org_scope else client.my_workspaces()
-        if not client.org_scope and (config.get('workspace') or len(mine) == 1):
+        if not client.org_scope:
+            mine = client.my_workspaces()
+            if not config.get('workspace') and len(mine) > 1:
+                # Nearly every action works in one workspace; without Workspace each would fail.
+                raise ConnectorError(
+                    '{0} is a member of {1} workspaces ({2}): set Workspace in the configuration.'.format(
+                        config.get('username'), len(mine),
+                        ', '.join(str(w.get('workspaceName')) for w in mine)))
             ws = client.default_workspace()
             role = next((w.get('membershipRole') for w in mine if str(w.get('id')) == ws), None)
-            if role and role != 'workspace_admin':
+            if role in MEMBER_ROLES:
                 # Live-verified on 8.0.2: a workspace member gets 403 "Workspace administrator
                 # access required" on keys, guardrails, policies, detectors and traffic logs.
-                raise ConnectorError(
-                    '{0} is a {1} of its workspace. FortiAIGate lets only a workspace admin read '
-                    'keys, guardrails, policies and logs or revoke keys; make this user a workspace '
-                    'admin, or use an organization administrator.'.format(client.me().get('email'), role))
+                raise ConnectorError(member_message(config.get('username')))
     except (ValueError, *API_ERRORS) as err:
         raise ConnectorError(str(err))
     return 'ok'

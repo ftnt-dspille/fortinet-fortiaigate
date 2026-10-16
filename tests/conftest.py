@@ -257,9 +257,18 @@ class Handler(BaseHTTPRequestHandler):
             self._send(403, {"error": "Organization-level access required"})
             return True
         parts = self.path.split("/")  # '', api, v1, workspaces, <ws>, <resource>, ...
+        if len(parts) > 5 and parts[3] == "workspaces" and parts[5].split("?")[0] == "grantable-providers":
+            self._send(200, {"providers": [
+                {"providerId": "openai", "models": [{"publicName": "openai-gpt", "effectiveEnabled": True}]},
+                {"providerId": "off", "models": [{"effectiveEnabled": False}]}]})
+            return True
         if len(parts) > 5 and parts[3] == "workspaces" and parts[5].split("?")[0] in self.WS_RESOURCES:
             if self._sessioned() and STATE.role != "org_admin" and parts[4] not in STATE.memberships:
                 self._send(403, {"error": "Not a member of this workspace"})
+                return True
+            if self._sessioned() and STATE.role == "workspace_member":
+                # live-verified on 8.0.2: a member may read almost nothing
+                self._send(403, {"error": "Workspace administrator access required"})
                 return True
             self.workspace = parts[4]
             rest = "/".join(parts[5:])
@@ -416,8 +425,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/v1/me/workspaces":
             if self._sessioned():
                 # 8.0.2 adds the login's membershipRole to each workspace.
-                self._send(200, [dict(w, membershipRole=STATE.role) for w in STATE.workspaces
-                                 if w["id"] in STATE.memberships])
+                short = {"workspace_admin": "admin", "workspace_member": "member"}
+                self._send(200, [dict(w, membershipRole=short.get(STATE.role, STATE.role))
+                                 for w in STATE.workspaces if w["id"] in STATE.memberships])
             else:
                 self._unauthorized()
             return

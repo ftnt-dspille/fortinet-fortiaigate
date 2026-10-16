@@ -2,10 +2,18 @@
 
 ## 1.6.0
 
-- **The health check refuses a workspace member login** with a message saying to make the
-  user a workspace admin. FortiAIGate 8.0.2 answers a member 403 on keys, guardrails,
-  policies, detectors and traffic logs, so such a configuration used to pass the health
-  check and then fail every action.
+- **Wrong-role logins are caught and explained** (live-verified on 8.0.2 with a throwaway
+  workspace member and admin):
+  - The health check refuses a workspace **member**: FortiAIGate answers a member 403
+    "Workspace administrator access required" on keys, guardrails, policies, detectors and
+    traffic logs, so such a configuration used to pass the health check and then fail every
+    action. A workspace admin passes (8.0.2 reports the membership as "admin").
+  - The health check refuses a login in several workspaces when **Workspace** is not set.
+  - A 403 for a role reason names the login and what to change, followed by the gateway's
+    answer; input the library refuses comes back as a connector error, not a traceback.
+- **Update Virtual Key / Create Virtual Key** send TPM and RPM as whole numbers (8.0.2
+  answered 422 "expected integer" to the text the step editor sends). **Create Virtual Key**
+  grants the workspace's enabled providers: 8.0.2 refuses a key with no model access (422).
 - **Uses pyfortiaigate.** Every FortiAIGate call goes through the `pyfortiaigate` library
   (`requirements.txt`: `pyfortiaigate>=0.4.0`, installed with the connector; it needs Python
   3.10 or newer). The connector's own HTTP client is gone, and so is its name resolution and
