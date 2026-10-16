@@ -63,9 +63,6 @@ Output and parameter changes:
 
 Known limits:
 
-- **Get Policy** reads a workspace login's policy from its own policy list. The library's
-  `policy()` always uses the organization path, which a workspace login cannot call; this
-  connector works around it until the library reads the workspace path too.
 - **Get Blocked Traffic** keeps the newest `max_items` rows of a window. A scheduled run that
   sees more blocked requests than the cap in one interval does not ingest the older excess.
 
