@@ -43,6 +43,12 @@ SECRET_RESPONSE_FIELDS = (
     'secretKey', 'secret_key', 'apiKey', 'api_key', 'newKey', 'new_key', 'key',
 )
 
+# Fields a virtual-key PUT accepts; every other field of the GET is read-only.
+KEY_WRITABLE = (
+    'keyName', 'expiresAt', 'tpm', 'rpm', 'policyIds', 'providerAccess',
+    'modelGroups', 'budgetWindows',
+)
+
 
 def key_id_from_secret(api_key: str) -> str:
     """A virtual key secret embeds its record id: faig_<uuid-no-dashes>_...
@@ -576,19 +582,23 @@ class FaigClient:
                            rpm: Optional[str] = None,
                            policy_ids: Optional[list] = None) -> dict:
         """Merge-supplied update: the API replaces the full record, so read
-        the current one first and resend its fields plus the changes.
-        ``policy_ids`` REPLACES the attached policy list (org-assigned
-        policies stay forced onto the key regardless)."""
+        the current one first and resend its writable fields plus the changes
+        (8.0.2 answers 422 to read-only fields such as ``status`` or
+        ``updatedAt``, and to policies sent as objects). ``policy_ids``
+        REPLACES the key's own policies; org-assigned ones are always sent
+        back, since leaving one out reads as detaching it (org admin only)."""
         current = self._call('GET', self._path('virtual-keys/{0}'.format(key_id)))
         record = current.get('key', current) if isinstance(current, dict) else {}
-        body = dict(record)
-        body.pop('id', None)
+        body = {k: record[k] for k in KEY_WRITABLE if k in record}
+        policies = record.get('policyIds') or []
+        body['policyIds'] = [str(p['id']) if isinstance(p, dict) else str(p) for p in policies]
         for target, value in (('expiresAt', expires_at), ('tpm', tpm),
                               ('rpm', rpm)):
             if value:
                 body[target] = value
         if policy_ids:
-            body['policyIds'] = [str(p) for p in policy_ids]
+            org = [str(p['id']) for p in policies if isinstance(p, dict) and p.get('assignedByOrg')]
+            body['policyIds'] = list(dict.fromkeys(org + [str(p) for p in policy_ids]))
         return self._call('PUT', self._path('virtual-keys/{0}'.format(key_id)), body)
 
     def rotate_virtual_key(self, key_id: str) -> dict:

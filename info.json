@@ -1,7 +1,7 @@
 {
   "name": "fortinet-fortiaigate",
   "label": "Fortinet FortiAIGate",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Fortinet FortiAIGate is an inline AI gateway that brokers and guards access to large language model providers. This connector manages the gateway's virtual keys - the data-plane API keys that client applications present to the gateway's OpenAI-compatible endpoint. Operations cover listing and inspecting virtual keys, creating keys (the gateway returns the key secret exactly once), rotating a key in place (invalidating the old secret and issuing a new one), revoking keys, setting key expiry and rate limits, and validating a key against the data-plane models endpoint. Built for the FortiAIGate 8.x management API (session cookie plus per-mutation CSRF, admin console JSON API). Version 1.1 adds governed AI usage: chat completions through the data plane, guardrail testing, policy and provider visibility, workspace budgets and audit logs. Version 1.4 works with a workspace login as well as an organization administrator: the connector reads the login's role and, for a workspace admin or member, manages that workspace's keys, guardrails, policies, detectors and logs.",
   "publisher": "Fortinet",
   "category": "Analytics and SIEM",
@@ -349,18 +349,18 @@
       }
     },
     {
-      "operation": "replace_virtual_key",
-      "title": "Replace Virtual Key",
-      "description": "Get a working replacement for a virtual key and its new secret. FortiAIGate only rotates a key that is still active; an expired, revoked or suspended key cannot be rotated. So an active key is rotated in place (same id), and any other key is replaced by a new key in the same workspace with the same name, limits and policies (a suspended key is revoked afterwards). A revoked key, or a key with model groups or provider access, is not replaced unless you allow it. Pass the key (Key ID) or its secret (API Key). The new secret is returned as new_secret and is shown only once - store it immediately, for example in HashiCorp Vault.",
+      "operation": "renew_virtual_key",
+      "title": "Renew Virtual Key",
+      "description": "Give a virtual key a new secret while keeping the same key: same id, name, limits, policies and model access. FortiAIGate only rotates an active key, so an expired key is first extended (Extend By, default 30 days) and then rotated; an active key is rotated straight away. A revoked or suspended key is refused and nothing is changed. Pass the key (Key ID) or its secret (API Key). The new secret is returned as new_secret and is shown only once - store it immediately, for example in HashiCorp Vault. The old secret stops working at once.",
       "enabled": true,
-      "annotation": "replace_virtual_key",
+      "annotation": "renew_virtual_key",
       "category": "containment",
       "parameters": [
         {
           "title": "Key ID",
           "type": "select",
           "name": "key_id",
-          "description": "(Optional) The virtual key to replace, by name or id. Leave empty when passing the key secret instead.",
+          "description": "(Optional) The virtual key to renew, by name or id. Leave empty when passing the key secret instead.",
           "required": false,
           "editable": true,
           "visible": true,
@@ -376,54 +376,14 @@
           "visible": true
         },
         {
-          "title": "New Key Name",
-          "type": "text",
-          "name": "new_key_name",
-          "description": "(Optional) Name for a replacement key. Defaults to the name of the key being replaced.",
-          "required": false,
-          "editable": true,
-          "visible": true,
-          "value": ""
-        },
-        {
-          "title": "Expires In (Days)",
+          "title": "Extend By (Days)",
           "type": "text",
           "name": "expires_in_days",
-          "description": "(Optional) Lifetime of a replacement key in days. Defaults to the lifetime the old key had, or no expiry if it had none.",
+          "description": "(Optional) Used only when the key has expired: its new expiry, in days from now. Default 30. An active key keeps its expiry.",
           "required": false,
           "editable": true,
           "visible": true,
           "value": ""
-        },
-        {
-          "title": "Revoke Old Key",
-          "type": "checkbox",
-          "name": "revoke_old",
-          "description": "Revoke a suspended key once its replacement exists. An expired key needs no revoking. Default on.",
-          "required": false,
-          "editable": true,
-          "visible": true,
-          "value": true
-        },
-        {
-          "title": "Allow Replacing a Revoked Key",
-          "type": "checkbox",
-          "name": "allow_revoked",
-          "description": "A revoked key was shut off on purpose, so it is not replaced unless this is on. Default off.",
-          "required": false,
-          "editable": true,
-          "visible": true,
-          "value": false
-        },
-        {
-          "title": "Allow Replacement Without Model Access Limits",
-          "type": "checkbox",
-          "name": "allow_uncopied",
-          "description": "A key's model groups and provider access are not copied to its replacement, which could then reach more than the original. By default the action stops instead; turn this on to create it anyway and apply the limits yourself.",
-          "required": false,
-          "editable": true,
-          "visible": true,
-          "value": false
         }
       ],
       "output_schema": {
@@ -432,20 +392,17 @@
           "method": {
             "type": "string"
           },
-          "old_key_id": {
+          "key_id": {
             "type": "string"
           },
-          "new_key_id": {
+          "old_status": {
+            "type": "string"
+          },
+          "expires_at": {
             "type": "string"
           },
           "new_secret": {
             "type": "string"
-          },
-          "old_revoked": {
-            "type": "boolean"
-          },
-          "not_copied": {
-            "type": "array"
           }
         }
       }

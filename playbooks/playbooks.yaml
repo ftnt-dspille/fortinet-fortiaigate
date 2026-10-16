@@ -28,19 +28,18 @@ playbooks:
     description: >-
       Keeps an application's FortiAIGate virtual key working. Reads the key
       from a HashiCorp Vault KV v2 secret and tests it against the data plane.
-      If it no longer works (expired, revoked or suspended), the playbook
-      issues a replacement - FortiAIGate cannot rotate a key in that state, so
-      it creates a new key in the same workspace with the same name, limits and
-      policies - writes the new secret into the same Vault path as a new
-      version, and checks that the new key works. Every other field of the
-      secret is kept. A key that still works is left alone. A key that was
-      revoked on purpose, or that has model groups or provider access (which a
-      replacement would not inherit), stops the run with a message instead.
+      If it no longer works, the playbook renews the same key - an expired key
+      is extended (FortiAIGate only rotates an active key) and then rotated -
+      writes the new secret into the same Vault path as a new version, and
+      checks that the new secret works. The key keeps its id, name, limits,
+      policies and model access; every other field of the secret is kept. A
+      key that still works is left alone, and a revoked or suspended key stops
+      the run with a message.
 
       Inputs: secret_path (the KV v2 path, for example lab/ai) and, when the
       key is not stored under api_key, key_field. Outputs: rotation_result
-      (a one-line outcome), rotated (true or false), new_key_id and
-      key_method (reissued or rotated). Run it from a schedule, or call it
+      (a one-line outcome), rotated (true or false), key_id and key_method
+      (rotated or extended_and_rotated). Run it from a schedule, or call it
       as a child playbook once per secret.
     is_active: true
     parameters: [secret_path, key_field]
@@ -53,10 +52,14 @@ playbooks:
       - name: ResolvePath
         type: set_variable
         next: ReadCurrentSecret
-        comment: The Vault path of the secret holding the key, and the field it is stored in.
+        comment: >-
+          The Vault path of the secret holding the key, and the field it is
+          stored in. Read from the playbook parameters (manual run, schedule,
+          child call) or, for an API trigger that sends them as top-level
+          variables, from vars.
         vars:
-          secret_path: "{{ vars.input.params.secret_path | default('lab/ai', true) }}"
-          key_field: "{{ vars.input.params.key_field | default('api_key', true) }}"
+          secret_path: "{{ vars.input.params.secret_path | default(vars.secret_path, true) | default('lab/ai', true) }}"
+          key_field: "{{ vars.input.params.key_field | default(vars.key_field, true) | default('api_key', true) }}"
 
       - name: ReadCurrentSecret
         type: connector
@@ -78,24 +81,24 @@ playbooks:
 
       - name: KeyValid
         type: decision
-        next: ReplaceKey
+        next: RenewKey
         comment: Branch on the data-plane verdict for the stored key.
         conditions:
-          - display: Invalid - replace
+          - display: Invalid - renew
             when: "{{ vars.steps.CheckCurrentKey.data.valid | default(true) != true }}"
-            next: ReplaceKey
+            next: RenewKey
           - display: Valid - nothing to do
             default: true
             next: AlreadyHealthy
 
-      - name: ReplaceKey
+      - name: RenewKey
         type: connector
         next: BuildPayload
         comment: >-
-          An expired, revoked or suspended key cannot be rotated, so this
-          issues a replacement key (an active key would be rotated in place).
+          Same key, new secret. FortiAIGate only rotates an active key, so an
+          expired one is extended first.
         connector: fortinet-fortiaigate
-        operation: replace_virtual_key
+        operation: renew_virtual_key
         config: ''
         params:
           key_id: ''
@@ -110,7 +113,7 @@ playbooks:
           replaced. Built as a JSON string because connector params are strings.
         vars:
           payload: >-
-            {{ (vars.steps.ReadCurrentSecret.data.data | combine({vars.key_field: vars.steps.ReplaceKey.data.new_secret})) | tojson }}
+            {{ (vars.steps.ReadCurrentSecret.data.data | combine({vars.key_field: vars.steps.RenewKey.data.new_secret})) | tojson }}
 
       - name: WriteSecret
         type: connector
@@ -129,12 +132,12 @@ playbooks:
         operation: check_key
         config: ''
         params:
-          api_key: '{{ vars.steps.ReplaceKey.data.new_secret }}'
+          api_key: '{{ vars.steps.RenewKey.data.new_secret }}'
 
       - name: NewKeyValid
         type: decision
         next: Done
-        comment: The rotated key must validate; anything else fails the run.
+        comment: The new secret must validate; anything else fails the run.
         conditions:
           - display: New key valid
             when: '{{ vars.steps.VerifyNewKey.data.valid | default(false) }}'
@@ -152,16 +155,16 @@ playbooks:
 
       - name: FailRotation
         type: set_variable
-        comment: Reachable only when the rotated key does not validate.
+        comment: Reachable only when the new secret does not validate.
         vars:
-          rotation_outcome: failed - rotated key rejected by the data plane
+          rotation_outcome: failed - new secret rejected by the data plane
           rotated: false
 
       - name: Done
         type: set_variable
         comment: Terminal summary.
         vars:
-          new_key_id: '{{ vars.steps.ReplaceKey.data.new_key_id | default("") }}'
-          key_method: '{{ vars.steps.ReplaceKey.data.method | default("") }}'
-          rotation_result: '{{ vars.rotation_outcome | default("replaced - new key stored in Vault and verified") }}'
+          key_id: '{{ vars.steps.RenewKey.data.key_id | default("") }}'
+          key_method: '{{ vars.steps.RenewKey.data.method | default("") }}'
+          rotation_result: '{{ vars.rotation_outcome | default("renewed - new secret stored in Vault and verified") }}'
           rotated: '{{ vars.rotated | default(true) }}'

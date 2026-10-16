@@ -16,6 +16,7 @@ import sys
 import threading
 import types
 import uuid
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -482,9 +483,25 @@ class Handler(BaseHTTPRequestHandler):
         if not key_id or key_id not in STATE.keys:
             self._send(404, {'error': 'no such key'})
             return
-        STATE.last_put_body = self._body()
-        STATE.keys[key_id].update(STATE.last_put_body)
-        self._send(200, STATE.keys[key_id])
+        body = self._body()
+        # 8.0.2 refuses read-only fields and policies sent as objects
+        bad = [k for k in body if k not in ('keyName', 'expiresAt', 'tpm', 'rpm', 'policyIds',
+                                           'providerAccess', 'modelGroups', 'budgetWindows')]
+        bad += ['policyIds[]' for p in body.get('policyIds') or [] if not isinstance(p, str)]
+        if bad:
+            self._send(422, {'detail': [{'loc': ['body', k], 'msg': 'not allowed'} for k in bad]})
+            return
+        STATE.last_put_body = body
+        record = STATE.keys[key_id]
+        record.update({k: v for k, v in body.items() if k != 'policyIds'})
+        if 'policyIds' in body:
+            org = {p['id'] for p in record.get('policyIds') or [] if isinstance(p, dict) and p.get('assignedByOrg')}
+            record['policyIds'] = [{'id': p, 'assignedByOrg': p in org} for p in body['policyIds']]
+        # an expired key whose expiry moves into the future is active again
+        now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+        if record.get('status') == 'expired' and str(body.get('expiresAt') or '') > now:
+            record['status'] = 'active'
+        self._send(200, record)
 
     def _key_id_from(self, prefix, suffix):
         if not self.path.startswith(prefix):

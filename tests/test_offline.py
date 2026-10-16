@@ -61,12 +61,12 @@ def test_create_virtual_key_returns_secret_once(fake, config):
     assert 'secretKey' not in stored
 
 
-def test_update_merges_full_record(fake, config):
+def test_update_merges_the_writable_fields_of_the_record(fake, config):
     ops.update_virtual_key(config, {'key_id': 'k-1', 'tpm': '500'})
     body = fake.last_put_body
     assert body['tpm'] == '500'
     assert body['keyName'] == 'alpha'
-    assert body['keyPreview'] == 'faig-AAA-k-1'
+    assert 'keyPreview' not in body          # read-only: 8.0.2 answers 422
     record = ops.get_virtual_key(config, {'key_id': 'k-1'})
     assert record['tpm'] == '500'
 
@@ -428,10 +428,11 @@ def _expired_key(fake, status='expired', **extra):
         'modelGroups': [], 'providerAccess': []}, **extra)
 
 
-def test_replace_rotates_an_active_key_in_place(fake, config):
-    result = ops.replace_virtual_key(config, {'key_id': 'k-1'})
-    assert result['method'] == 'rotated' and result['new_key_id'] == 'k-1'
+def test_renew_rotates_an_active_key_in_place(fake, config):
+    result = ops.renew_virtual_key(config, {'key_id': 'k-1'})
+    assert result['method'] == 'rotated' and result['key_id'] == 'k-1'
     assert result['new_secret'].startswith('faig_rotated_')
+    assert fake.last_put_body is None
 
 
 def test_a_rotate_of_an_expired_key_is_refused_by_the_gateway(fake, config):
@@ -441,51 +442,39 @@ def test_a_rotate_of_an_expired_key_is_refused_by_the_gateway(fake, config):
         ops.rotate_virtual_key(config, {'key_id': 'old-1'})
 
 
-def test_replace_reissues_an_expired_key_with_the_same_shape(fake, config):
+def test_renew_extends_an_expired_key_then_rotates_it(fake, config):
     _expired_key(fake)
-    result = ops.replace_virtual_key(config, {'key_id': 'old-1'})
-    assert result['method'] == 'reissued' and result['old_status'] == 'expired'
-    assert result['new_key_id'] != 'old-1' and result['new_secret'].startswith('faig_')
-    body = fake.last_create_body
-    assert body['workspaceId'] == 'ws-1' and body['keyName'] == 'svc-key' and body['tpm'] == '1000'
-    assert 'rpm' not in body
-    assert body['expiresAt']                      # the same 30-day lifetime again, from now
-    assert fake.last_put_body['policyIds'] == ['own-pol']     # org policies attach themselves
-    assert result['old_revoked'] is False and fake.last_revoke_body is None
+    result = ops.renew_virtual_key(config, {'key_id': 'old-1', 'expires_in_days': '90'})
+    assert result['method'] == 'extended_and_rotated' and result['old_status'] == 'expired'
+    assert result['key_id'] == 'old-1' and result['new_secret'].startswith('faig_rotated_')
+    assert fake.last_create_body is None                   # nothing new is created
+    body = fake.last_put_body
+    assert body['expiresAt'] == result['expires_at'] and body['expiresAt'] > '2026-10'
+    assert body['policyIds'] == ['org-pol', 'own-pol'] and body['tpm'] == 1000
 
 
-def test_replace_takes_the_key_secret_and_a_new_lifetime(fake, config):
+def test_renew_takes_the_key_secret(fake, config):
     _expired_key(fake)
     fake.keys['9f8e7d6c-5b4a-3928-1706-f1e2d3c4b5a6'] = dict(fake.keys.pop('old-1'), id='9f8e7d6c-5b4a-3928-1706-f1e2d3c4b5a6')
-    result = ops.replace_virtual_key(config, {'api_key': 'faig_9f8e7d6c5b4a39281706f1e2d3c4b5a6_secret', 'expires_in_days': '90',
-                                              'new_key_name': 'svc-key-2'})
-    assert result['method'] == 'reissued' and fake.last_create_body['keyName'] == 'svc-key-2'
+    result = ops.renew_virtual_key(config, {'api_key': 'faig_9f8e7d6c5b4a39281706f1e2d3c4b5a6_secret'})
+    assert result['method'] == 'extended_and_rotated'
 
 
-def test_replace_revokes_a_suspended_key_after_its_replacement_exists(fake, config):
-    _expired_key(fake, status='suspended', expiresAt=None)
-    result = ops.replace_virtual_key(config, {'key_id': 'old-1'})
-    assert result['old_revoked'] is True and fake.last_revoke_body['reason'].startswith('Replaced by key ')
-    assert 'expiresAt' not in fake.last_create_body or not fake.last_create_body['expiresAt']
-
-
-def test_replace_refuses_when_model_limits_could_not_be_carried_over(fake, config):
+@pytest.mark.parametrize('status', ['revoked', 'suspended'])
+def test_renew_leaves_a_revoked_or_suspended_key_alone(fake, config, status):
     from fortiaigate.connections import ConnectorError
-    _expired_key(fake, modelGroups=[{'id': 'mg-1'}])
-    with pytest.raises(ConnectorError, match='could reach more than the'):
-        ops.replace_virtual_key(config, {'key_id': 'old-1'})
-    assert fake.last_create_body is None          # nothing was created
-    result = ops.replace_virtual_key(config, {'key_id': 'old-1', 'allow_uncopied': True})
-    assert result['not_copied'] == ['modelGroups']
+    _expired_key(fake, status=status)
+    with pytest.raises(ConnectorError, match='is {0}'.format(status)):
+        ops.renew_virtual_key(config, {'key_id': 'old-1'})
+    assert fake.last_put_body is None and fake.last_create_body is None
 
 
-def test_replace_never_revives_a_revoked_key_unasked(fake, config):
-    from fortiaigate.connections import ConnectorError
-    _expired_key(fake, status='revoked')
-    with pytest.raises(ConnectorError, match='deliberate'):
-        ops.replace_virtual_key(config, {'key_id': 'old-1'})
-    assert fake.last_create_body is None
-    assert ops.replace_virtual_key(config, {'key_id': 'old-1', 'allow_revoked': True})['method'] == 'reissued'
+def test_update_sends_only_writable_fields_and_keeps_org_policies(fake, config):
+    _expired_key(fake, status='active', spend=1.5, updatedAt='2026-01-02T00:00:00.000Z')
+    ops.update_virtual_key(config, {'key_id': 'old-1', 'tpm': '5', 'policy_ids': 'pol-9'})
+    body = fake.last_put_body
+    assert 'status' not in body and 'spend' not in body and 'updatedAt' not in body
+    assert body['policyIds'] == ['org-pol', 'pol-9']        # dropping org-pol would detach it
 
 
 @pytest.mark.parametrize('secret', ['', 'nope', 'faig_short_x', 'other_9f8e7d6c5b4a39281706f1e2d3c4b5a6_x',

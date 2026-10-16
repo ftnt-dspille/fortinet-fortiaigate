@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.3.4",
+      "name": "Sample - Fortinet FortiAIGate - 1.5.0",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -24,7 +24,7 @@
           "aliasName": null,
           "tag": "",
           "recordTags": [],
-          "description": "Keeps an application's FortiAIGate virtual key working. Reads the key from a HashiCorp Vault KV v2 secret and tests it against the data plane. If it no longer works (expired, revoked or suspended), the playbook issues a replacement - FortiAIGate cannot rotate a key in that state, so it creates a new key in the same workspace with the same name, limits and policies - writes the new secret into the same Vault path as a new version, and checks that the new key works. Every other field of the secret is kept. A key that still works is left alone. A key that was revoked on purpose, or that has model groups or provider access (which a replacement would not inherit), stops the run with a message instead.\nInputs: secret_path (the KV v2 path, for example lab/ai) and, when the key is not stored under api_key, key_field. Outputs: rotation_result (a one-line outcome), rotated (true or false), new_key_id and key_method (reissued or rotated). Run it from a schedule, or call it as a child playbook once per secret.",
+          "description": "Keeps an application's FortiAIGate virtual key working. Reads the key from a HashiCorp Vault KV v2 secret and tests it against the data plane. If it no longer works, the playbook renews the same key - an expired key is extended (FortiAIGate only rotates an active key) and then rotated - writes the new secret into the same Vault path as a new version, and checks that the new secret works. The key keeps its id, name, limits, policies and model access; every other field of the secret is kept. A key that still works is left alone, and a revoked or suspended key stops the run with a message.\nInputs: secret_path (the KV v2 path, for example lab/ai) and, when the key is not stored under api_key, key_field. Outputs: rotation_result (a one-line outcome), rotated (true or false), key_id and key_method (rotated or extended_and_rotated). Run it from a schedule, or call it as a child playbook once per secret.",
           "isActive": true,
           "debug": false,
           "singleRecordExecution": false,
@@ -34,7 +34,7 @@
             "key_field"
           ],
           "synchronous": false,
-          "lastModifyDate": 1791925194,
+          "lastModifyDate": 1792174203,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/abc94d4b-1eda-523a-9790-8b8a20aa2327",
@@ -62,8 +62,8 @@
               "name": "ResolvePath",
               "description": null,
               "arguments": {
-                "secret_path": "{{ vars.input.params.secret_path | default('lab/ai', true) }}",
-                "key_field": "{{ vars.input.params.key_field | default('api_key', true) }}"
+                "secret_path": "{{ vars.input.params.secret_path | default(vars.secret_path, true) | default('lab/ai', true) }}",
+                "key_field": "{{ vars.input.params.key_field | default(vars.key_field, true) | default('api_key', true) }}"
               },
               "status": null,
               "top": "250",
@@ -107,7 +107,7 @@
                 "params": {
                   "api_key": "{{ vars.steps.ReadCurrentSecret.data.data[vars.key_field] }}"
                 },
-                "version": "1.3.4",
+                "version": "1.5.0",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -127,10 +127,10 @@
               "arguments": {
                 "conditions": [
                   {
-                    "option": "Invalid - replace",
+                    "option": "Invalid - renew",
                     "condition": "{{ vars.steps.CheckCurrentKey.data.valid | default(true) != true }}",
-                    "step_iri": "/api/3/workflow_steps/b175a5d3-9e2a-5358-9d3f-dae0998f2e56",
-                    "step_name": "ReplaceKey"
+                    "step_iri": "/api/3/workflow_steps/00a29d8e-076f-5d26-88f4-35d016e77a5e",
+                    "step_name": "RenewKey"
                   },
                   {
                     "option": "Valid - nothing to do",
@@ -149,19 +149,19 @@
             },
             {
               "@type": "WorkflowStep",
-              "name": "ReplaceKey",
+              "name": "RenewKey",
               "description": null,
               "arguments": {
                 "connector": "fortinet-fortiaigate",
-                "operation": "replace_virtual_key",
+                "operation": "renew_virtual_key",
                 "config": "",
                 "params": {
                   "key_id": "",
                   "api_key": "{{ vars.steps.ReadCurrentSecret.data.data[vars.key_field] }}"
                 },
-                "version": "1.3.4",
+                "version": "1.5.0",
                 "name": "Fortinet FortiAIGate",
-                "operationTitle": "Replace Virtual Key",
+                "operationTitle": "Renew Virtual Key",
                 "step_variables": [],
                 "pickFromTenant": false
               },
@@ -170,14 +170,14 @@
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
-              "uuid": "b175a5d3-9e2a-5358-9d3f-dae0998f2e56"
+              "uuid": "00a29d8e-076f-5d26-88f4-35d016e77a5e"
             },
             {
               "@type": "WorkflowStep",
               "name": "BuildPayload",
               "description": null,
               "arguments": {
-                "payload": "{{ (vars.steps.ReadCurrentSecret.data.data | combine({vars.key_field: vars.steps.ReplaceKey.data.new_secret})) | tojson }}"
+                "payload": "{{ (vars.steps.ReadCurrentSecret.data.data | combine({vars.key_field: vars.steps.RenewKey.data.new_secret})) | tojson }}"
               },
               "status": null,
               "top": "900",
@@ -220,9 +220,9 @@
                 "operation": "check_key",
                 "config": "",
                 "params": {
-                  "api_key": "{{ vars.steps.ReplaceKey.data.new_secret }}"
+                  "api_key": "{{ vars.steps.RenewKey.data.new_secret }}"
                 },
-                "version": "1.3.4",
+                "version": "1.5.0",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -282,7 +282,7 @@
               "name": "FailRotation",
               "description": null,
               "arguments": {
-                "rotation_outcome": "failed - rotated key rejected by the data plane",
+                "rotation_outcome": "failed - new secret rejected by the data plane",
                 "rotated": false
               },
               "status": null,
@@ -297,9 +297,9 @@
               "name": "Done",
               "description": null,
               "arguments": {
-                "new_key_id": "{{ vars.steps.ReplaceKey.data.new_key_id | default(\"\") }}",
-                "key_method": "{{ vars.steps.ReplaceKey.data.method | default(\"\") }}",
-                "rotation_result": "{{ vars.rotation_outcome | default(\"replaced - new key stored in Vault and verified\") }}",
+                "key_id": "{{ vars.steps.RenewKey.data.key_id | default(\"\") }}",
+                "key_method": "{{ vars.steps.RenewKey.data.method | default(\"\") }}",
+                "rotation_result": "{{ vars.rotation_outcome | default(\"renewed - new secret stored in Vault and verified\") }}",
                 "rotated": "{{ vars.rotated | default(true) }}"
               },
               "status": null,
@@ -353,13 +353,13 @@
             },
             {
               "@type": "WorkflowRoute",
-              "name": "KeyValid -> ReplaceKey",
-              "targetStep": "/api/3/workflow_steps/b175a5d3-9e2a-5358-9d3f-dae0998f2e56",
+              "name": "KeyValid -> RenewKey",
+              "targetStep": "/api/3/workflow_steps/00a29d8e-076f-5d26-88f4-35d016e77a5e",
               "sourceStep": "/api/3/workflow_steps/51cb83cf-19fc-5d4c-9420-2ae732d0f1ae",
-              "label": "Invalid - replace",
+              "label": "Invalid - renew",
               "isExecuted": false,
               "group": null,
-              "uuid": "8238d1ff-91ad-567f-8d00-0a165338ac84"
+              "uuid": "302b1e41-f090-5ec0-a9ea-7bf8cddb66b3"
             },
             {
               "@type": "WorkflowRoute",
@@ -373,13 +373,13 @@
             },
             {
               "@type": "WorkflowRoute",
-              "name": "ReplaceKey -> BuildPayload",
+              "name": "RenewKey -> BuildPayload",
               "targetStep": "/api/3/workflow_steps/84314bf7-a8b3-5227-b0ba-83b4cee1a0e8",
-              "sourceStep": "/api/3/workflow_steps/b175a5d3-9e2a-5358-9d3f-dae0998f2e56",
+              "sourceStep": "/api/3/workflow_steps/00a29d8e-076f-5d26-88f4-35d016e77a5e",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "e9e15ce8-5a60-5968-b532-bc196954a156"
+              "uuid": "39c7f1a4-b423-5550-bfab-c762e024ec1b"
             },
             {
               "@type": "WorkflowRoute",
@@ -446,7 +446,7 @@
             {
               "@type": "WorkflowGroup",
               "name": "Note: ResolvePath",
-              "description": "The Vault path of the secret holding the key, and the field it is stored in.",
+              "description": "The Vault path of the secret holding the key, and the field it is stored in. Read from the playbook parameters (manual run, schedule, child call) or, for an API trigger that sends them as top-level variables, from vars.",
               "type": "note",
               "isCollapsed": false,
               "hasTriggerStep": false,
@@ -455,7 +455,7 @@
               "reusable": false,
               "top": "250",
               "left": "540",
-              "height": "94",
+              "height": "138",
               "width": "440",
               "uuid": "31adc29f-74ee-53b8-8890-08b0453440ca",
               "recordTags": []
@@ -479,8 +479,8 @@
             },
             {
               "@type": "WorkflowGroup",
-              "name": "Note: ReplaceKey",
-              "description": "An expired, revoked or suspended key cannot be rotated, so this issues a replacement key (an active key would be rotated in place).",
+              "name": "Note: RenewKey",
+              "description": "Same key, new secret. FortiAIGate only rotates an active key, so an expired one is extended first.",
               "type": "note",
               "isCollapsed": false,
               "hasTriggerStep": false,
@@ -489,9 +489,9 @@
               "reusable": false,
               "top": "770",
               "left": "1220",
-              "height": "116",
+              "height": "94",
               "width": "440",
-              "uuid": "6b13035a-490d-5330-bb8c-bef37b07af11",
+              "uuid": "f5ccdec1-9283-5f9b-a0bb-6902a6ec8a0f",
               "recordTags": []
             },
             {
@@ -504,7 +504,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "906",
+              "top": "900",
               "left": "540",
               "height": "138",
               "width": "440",
@@ -514,7 +514,7 @@
             {
               "@type": "WorkflowGroup",
               "name": "Note: NewKeyValid",
-              "description": "The rotated key must validate; anything else fails the run.",
+              "description": "The new secret must validate; anything else fails the run.",
               "type": "note",
               "isCollapsed": false,
               "hasTriggerStep": false,
@@ -531,7 +531,7 @@
             {
               "@type": "WorkflowGroup",
               "name": "Note: FailRotation",
-              "description": "Reachable only when the rotated key does not validate.",
+              "description": "Reachable only when the new secret does not validate.",
               "type": "note",
               "isCollapsed": false,
               "hasTriggerStep": false,

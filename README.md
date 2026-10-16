@@ -7,7 +7,7 @@ through the admin console's JSON management API (session cookie plus
 per-mutation CSRF token).
 
 Operations: list workspaces (org-wide and the admin's own memberships),
-list / get / create / update / rotate / revoke virtual keys, data-plane key
+list / get / create / update / rotate / renew / revoke virtual keys, data-plane key
 validation (`check_key`), guarded chat completions (`chat_completion`),
 guardrail listing and scanning (`test_guardrail` - scan arbitrary text, no
 LLM involved), policies (list / get, plus attaching policy ids to keys),
@@ -31,13 +31,11 @@ Key lifecycle details:
   response's secret is extracted into `new_secret` when present. The gateway
   only rotates a key that is still active: an expired, revoked or suspended
   key answers "cannot be rotated: mint a new key instead".
-- replace -> **Replace Virtual Key** handles both cases: it rotates an active
-  key in place and otherwise creates a new key in the same workspace with the
-  same name, limits and policies, returning `new_secret` either way. A
-  suspended key is revoked afterwards. It stops without creating anything for
-  a revoked key, and for a key that has model groups or provider access (they
-  are not copied, so the replacement could reach more), unless you turn on
-  the matching Allow option.
+- renew -> **Renew Virtual Key** gives the same key a new secret: it
+  rotates an active key, and extends an expired one first (an expired key is
+  active again once its expiry is in the future), returning `new_secret`.
+  The key keeps its id, name, limits, policies and model access. A revoked
+  or suspended key is refused.
 - revoke -> sends a reason (the gateway requires one); set it with the
   optional Reason parameter.
 - create -> the gateway returns the secret exactly once (`secretKey`);
@@ -51,14 +49,13 @@ Key lifecycle details:
 `Heal Expired FortiAIGate Key in Vault` keeps an application's key working.
 Give it the KV v2 path of the secret (`secret_path`, and `key_field` when the
 key is not stored under `api_key`). It reads the key, tests it against the data
-plane, and when the key no longer works issues a replacement, writes it to the
-same path as a new Vault version with every other field of the secret kept,
-and verifies the new key. A working key is left alone, and a key that was
-revoked, or that has model groups or provider access, stops the run with a
-message so a person decides. It needs the
-`hashicorp-vault-kv` connector with a write-capable token, and returns
-`rotation_result`, `rotated`, `new_key_id` and `key_method`. Schedule it, or
-call it once per secret from a parent playbook.
+plane, and when the key no longer works renews it (same key, new secret),
+writes the new secret to the same path as a new Vault version with every other
+field of the secret kept, and verifies it. A working key is left alone, and a
+revoked or suspended key stops the run with a message so a person decides. It
+needs the `hashicorp-vault-kv` connector with a write-capable token, and
+returns `rotation_result`, `rotated`, `key_id` and `key_method`. Schedule it,
+or call it once per secret from a parent playbook.
 
 ## Tests
 

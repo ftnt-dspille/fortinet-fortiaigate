@@ -1,5 +1,27 @@
 # fortinet-fortiaigate release notes
 
+## 1.5.0
+
+- **Renew Virtual Key** replaces **Replace Virtual Key**, and no longer creates a new key.
+  FortiAIGate only rotates an active key, but an expired key becomes active again when its
+  expiry moves into the future. So an expired key is extended (**Extend By (Days)**,
+  default 30) and then rotated; an active key is rotated. The key keeps its id, name,
+  limits, policies and model access, so nothing has to be copied and nothing is left
+  behind. A revoked or suspended key is refused and left untouched. The New Key Name,
+  Revoke Old Key, Allow Replacing a Revoked Key and Allow Replacement Without Model Access
+  Limits options are gone. A playbook that calls `replace_virtual_key` must switch to
+  `renew_virtual_key`; its output has `key_id` in place of `old_key_id`/`new_key_id`.
+- The sample playbook **Heal Expired FortiAIGate Key in Vault** renews the key and writes
+  the new secret back to Vault as before; it returns `key_id` instead of `new_key_id`, and
+  `key_method` is `rotated` or `extended_and_rotated`. It also takes `secret_path` and
+  `key_field` as top-level variables, so an API trigger (which does not fill the playbook
+  parameters) no longer falls back to the default path.
+- Fixed: **Update Virtual Key** failed on 8.0.2 with HTTP 422 for every key. It resent the
+  whole record, read-only fields (`status`, `updatedAt`, ...) and policies as objects
+  included. It now sends only the writable fields, and keeps organization-assigned
+  policies when **Policy IDs** replaces the key's own (leaving one out reads as detaching
+  it, which only an organization administrator may do).
+
 ## 1.4.0
 
 - **Works with a workspace login.** The connector reads the login's role (`GET /api/v1/user`).
