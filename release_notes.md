@@ -1,5 +1,74 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.0
+
+- **Uses pyfortiaigate.** Every FortiAIGate call goes through the `pyfortiaigate` library
+  (`requirements.txt`: `pyfortiaigate>=0.4.0`, installed with the connector; it needs Python
+  3.10 or newer). The connector's own HTTP client is gone, and so is its name resolution and
+  its role and workspace routing: the library sends each call to the organization admin paths
+  or to the login's workspace, and resolves names to ids for workspaces, keys, policies,
+  guardrails and detectors. The dropdowns and the name-or-id parameters work as before.
+- **Get Blocked Traffic** (new, investigation): the requests FortiAIGate blocked, newest
+  first, each with the prompt and response, the detectors that fired (name, type, side,
+  details, id), the reason, the sending virtual key (name, prefix, id, status) and its owner
+  (name, email). Parameters: **Since** (epoch milliseconds or an ISO 8601 datetime, such as
+  2026-10-15T10:00:00Z; a naive one is UTC), **Until** (default now; needs Since), **Range**
+  (24h, 7d, month or all, used when Since is blank; default 24h), **Max Items** (default 100)
+  and **Workspace ID**. It returns a list of records.
+- **Scheduled data ingestion into Alerts.** The connector declares `ingestion_modes:
+  ["scheduled"]` and `ingestion_preferences: {"modules": ["alerts"]}`, and ships the sample
+  collection `Sample - Fortinet FortiAIGate - 1.6.0` with the Data Ingestion workflows
+  `>> FortiAIGate > Init Macros`, `> FortiAIGate > Fetch` and `FortiAIGate > Ingest`, modelled
+  on the FortiSIEM v2 chain. One alert per blocked request, upserted on `sourceId` (the
+  request's uuid): `name` "FortiAIGate blocked a prompt from <key name>: <reason>", `source`
+  "Fortinet FortiAIGate", `description` (the prompt and the detectors), `severity` High,
+  `alertDetectionDate` (the request time in epoch seconds), and `sourcedata` (the whole
+  request as JSON). Nothing else is mapped. The watermark (`LastPullTime` macro) is written
+  after the alerts; the window ends 60 seconds behind the clock. Two configuration fields:
+  **Initial Backfill Range** (default 24h) and **Maximum Requests Per Run** (default 500).
+- **Sample playbook Heal Expired FortiAIGate Key in Vault** is kept; it reads the renewed
+  secret from `secretKey` (was `new_secret`).
+
+Output and parameter changes:
+
+- Record outputs are the library's records. The `_`-prefixed fields are gone (`_id` is
+  `id`, `_keyName` is `keyName`, `_status` is `status`, `_name` is `name`, `_workspaceName` is
+  `workspaceName`, `_providerId` is `providerId`, `_detectorIds` is `detectorIds`, `_label`
+  is `label`), and so are the fields the connector added to them.
+- **Rotate Virtual Key** returns the key record with its new secret in `secretKey`. The
+  `new_secret` field is gone.
+- **Renew Virtual Key** returns `method`, `key_id`, `old_status`, `expires_at`, `secretKey`
+  (the new secret, shown once) and `key` (the key record, without the secret). `new_secret`
+  is gone.
+- **Chat Completion** returns the OpenAI-format completion: the assistant text is at
+  `choices[0].message.content`, the finish reason at `choices[0].finish_reason`, and `model`,
+  `usage` and `id` are at the top level. The connector's `content`, `finish_reason` and `raw`
+  fields are gone. A blocked prompt comes back with `finish_reason` `content_filter`, as before.
+- **Test Guardrail** returns the library's result: `finalDisposition`, `results` (one row per
+  detector: `detectorId`, `status`, `matched`, `finalDisposition`, `score`, `details`, `spans`)
+  and `scannedChars`. The top-level `matched` and `verdicts` fields are gone; read
+  `results[].matched`.
+- **List Audit Logs** pages with a cursor: the **Offset** parameter is replaced by **Cursor**
+  (the `nextCursor` of the previous page), and a **Range** select (24h, 7d, month or all;
+  default all) is added. The output has `items`, `total` (on the first page), `hasNext` and
+  `nextCursor`.
+- **Get Workspace Budget** no longer adds a `workspaceId` field.
+- **Execute API Request**: a 3xx answer is returned as an empty result, since the library does
+  not follow redirects (the session never leaves the configured server either way).
+- Errors from the library reach the step as its message, for example
+  `GET /api/v1/... -> HTTP 404: ...`. Operations that need an organization administrator
+  (**List AI Providers**) still say so and name the login.
+- Dropdown option operations (`get_*_options`) return plain name lists, as before; the
+  detector and model lists are unchanged in content.
+
+Known limits:
+
+- **Get Policy** reads a workspace login's policy from its own policy list. The library's
+  `policy()` always uses the organization path, which a workspace login cannot call; this
+  connector works around it until the library reads the workspace path too.
+- **Get Blocked Traffic** keeps the newest `max_items` rows of a window. A scheduled run that
+  sees more blocked requests than the cap in one interval does not ingest the older excess.
+
 ## 1.5.1
 
 - **Renew Virtual Key** never leaves an expired key's old secret working. Extending the

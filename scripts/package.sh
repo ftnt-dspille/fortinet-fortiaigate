@@ -26,7 +26,7 @@ if [ ${#FILES[@]} -eq 0 ]; then
     exit 1
 fi
 
-for required in info.json connector.py operations.py connections.py; do
+for required in info.json connector.py operations.py requirements.txt; do
     printf '%s\n' "${FILES[@]}" | grep -qx "$required" \
         || { echo "package: $required missing from the bundle" >&2; exit 1; }
 done

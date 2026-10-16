@@ -1,12 +1,21 @@
 {
   "name": "fortinet-fortiaigate",
   "label": "Fortinet FortiAIGate",
-  "version": "1.5.1",
-  "description": "Fortinet FortiAIGate is an inline AI gateway that brokers and guards access to large language model providers. This connector manages the gateway's virtual keys - the data-plane API keys that client applications present to the gateway's OpenAI-compatible endpoint. Operations cover listing and inspecting virtual keys, creating keys (the gateway returns the key secret exactly once), rotating a key in place (invalidating the old secret and issuing a new one), revoking keys, setting key expiry and rate limits, and validating a key against the data-plane models endpoint. Built for the FortiAIGate 8.x management API (session cookie plus per-mutation CSRF, admin console JSON API). Version 1.1 adds governed AI usage: chat completions through the data plane, guardrail testing, policy and provider visibility, workspace budgets and audit logs. Version 1.4 works with a workspace login as well as an organization administrator: the connector reads the login's role and, for a workspace admin or member, manages that workspace's keys, guardrails, policies, detectors and logs.",
+  "version": "1.6.0",
+  "description": "Fortinet FortiAIGate is an inline AI gateway that brokers and guards access to large language model providers. This connector manages the gateway's virtual keys - the data-plane API keys that client applications present to the gateway's OpenAI-compatible endpoint. Operations cover listing and inspecting virtual keys, creating keys (the gateway returns the key secret exactly once), rotating a key in place (invalidating the old secret and issuing a new one), revoking keys, setting key expiry and rate limits, and validating a key against the data-plane models endpoint. Built for the FortiAIGate 8.x management API (session cookie plus per-mutation CSRF, admin console JSON API). Version 1.1 adds governed AI usage: chat completions through the data plane, guardrail testing, policy and provider visibility, workspace budgets and audit logs. Version 1.4 works with a workspace login as well as an organization administrator: the connector reads the login's role and, for a workspace admin or member, manages that workspace's keys, guardrails, policies, detectors and logs. Version 1.6 adds scheduled data ingestion: the prebuilt Data Ingestion playbooks read the requests FortiAIGate blocked (with the prompt, the detectors that fired and the sending virtual key) and create one FortiSOAR alert per blocked request.",
   "publisher": "Fortinet",
   "category": "Analytics and SIEM",
   "cs_compatible": true,
   "cs_approved": false,
+  "ingestion_supported": true,
+  "ingestion_modes": [
+    "scheduled"
+  ],
+  "ingestion_preferences": {
+    "modules": [
+      "alerts"
+    ]
+  },
   "icon_small_name": "fortiaigate_small.png",
   "icon_large_name": "fortiaigate_large.png",
   "configuration": {
@@ -314,7 +323,7 @@
     {
       "operation": "rotate_virtual_key",
       "title": "Rotate Virtual Key",
-      "description": "Rotate a virtual key in place: FortiAIGate invalidates the old secret and issues a new one for the same key id. Pass either the key UUID, or the key secret itself (api_key) - the connector derives the id from it, since a virtual key embeds its record id. If the response contains the new secret, it is returned both in the raw response body and as a top-level new_secret field - store it immediately (for example by writing it to HashiCorp Vault), as it is not readable again.",
+      "description": "Rotate a virtual key in place: FortiAIGate invalidates the old secret and issues a new one for the same key id. Pass either the key (id or name), or the key secret itself (api_key); the connector derives the id from the secret. The response carries the new secret as secretKey - store it immediately (for example by writing it to HashiCorp Vault), as it is not readable again.",
       "enabled": true,
       "annotation": "rotate_virtual_key",
       "category": "containment",
@@ -342,8 +351,29 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "new_secret": {
+          "secretKey": {
             "type": "string"
+          },
+          "keyName": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previousSecretValidUntil": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }
@@ -351,7 +381,7 @@
     {
       "operation": "renew_virtual_key",
       "title": "Renew Virtual Key",
-      "description": "Give a virtual key a new secret while keeping the same key: same id, name, limits, policies and model access. FortiAIGate only rotates an active key, so an expired key is first extended (Extend By, default 30 days) and then rotated; an active key is rotated straight away. A revoked or suspended key is refused and nothing is changed. Pass the key (Key ID) or its secret (API Key). The new secret is returned as new_secret and is shown only once - store it immediately, for example in HashiCorp Vault. The old secret stops working at once.",
+      "description": "Give a virtual key a new secret while keeping the same key: same id, name, limits, policies and model access. FortiAIGate only rotates an active key, so an expired key is first extended (Extend By, default 30 days) and then rotated; an active key is rotated straight away. A revoked or suspended key is refused and nothing is changed. Pass the key (Key ID) or its secret (API Key). The new secret is returned as secretKey and is shown only once - store it immediately, for example in HashiCorp Vault. The old secret stops working at once.",
       "enabled": true,
       "annotation": "renew_virtual_key",
       "category": "containment",
@@ -399,10 +429,34 @@
             "type": "string"
           },
           "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "secretKey": {
             "type": "string"
           },
-          "new_secret": {
-            "type": "string"
+          "key": {
+            "type": "object",
+            "properties": {
+              "keyName": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "workspace": {
+                "type": "object",
+                "properties": {}
+              }
+            }
           }
         }
       }
@@ -477,7 +531,7 @@
     {
       "operation": "chat_completion",
       "title": "Chat Completion",
-      "description": "Run one OpenAI-compatible chat completion through the FortiAIGate data plane using a virtual key. Guardrails and policies attached to the key's workspace are enforced by the gateway, so playbook AI steps inherit its scanning and blocking. Returns the assistant message content, the model, finish reason and token usage.",
+      "description": "Run one OpenAI-compatible chat completion through the FortiAIGate data plane using a virtual key. Guardrails and policies attached to the key's workspace are enforced by the gateway, so playbook AI steps inherit its scanning and blocking. Returns the OpenAI-format completion: the assistant text is at choices[0].message.content, and a blocked prompt comes back with finish_reason content_filter.",
       "enabled": true,
       "annotation": "chat_completion",
       "category": "investigation",
@@ -535,17 +589,53 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "content": {
+          "id": {
             "type": "string"
           },
           "model": {
             "type": "string"
           },
-          "finish_reason": {
-            "type": "string"
+          "created": {
+            "type": "integer"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "finish_reason": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
           },
           "usage": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+              "prompt_tokens": {
+                "type": "integer"
+              },
+              "completion_tokens": {
+                "type": "integer"
+              },
+              "total_tokens": {
+                "type": "integer"
+              }
+            }
           }
         }
       }
@@ -602,14 +692,49 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "matched": {
-            "type": "boolean"
-          },
           "finalDisposition": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "results": {
-            "type": "array"
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "detectorId": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "matched": {
+                  "type": "boolean"
+                },
+                "finalDisposition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "score": {
+                  "type": "number"
+                },
+                "details": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "scannedChars": {
+            "type": "integer"
+          },
+          "latencyMs": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
           }
         }
       }
@@ -756,20 +881,35 @@
     {
       "operation": "list_audit_logs",
       "title": "List Audit Logs",
-      "description": "List the gateway's administration audit events (logins, key and policy changes), newest first, paginated. Returns the items plus the total and whether more pages exist.",
+      "description": "List the gateway's administration audit events (logins, key and policy changes), newest first. Returns the items, the total on the first page, and nextCursor (pass it back as Cursor for the next page).",
       "enabled": true,
       "annotation": "list_audit_logs",
       "category": "investigation",
       "parameters": [
         {
-          "title": "Offset",
+          "title": "Cursor",
           "type": "text",
-          "name": "offset",
-          "description": "(Optional) Page offset, default 0.",
+          "name": "cursor",
+          "description": "(Optional) The nextCursor of the previous page. Leave empty for the first page.",
           "required": false,
           "editable": true,
-          "visible": true,
-          "placeholder": "e.g. 0"
+          "visible": true
+        },
+        {
+          "title": "Range",
+          "type": "select",
+          "name": "range",
+          "options": [
+            "24h",
+            "7d",
+            "month",
+            "all"
+          ],
+          "value": "all",
+          "description": "(Optional) The period to list: the last 24 hours, 7 days, month, or all. Default all.",
+          "required": false,
+          "editable": true,
+          "visible": true
         },
         {
           "title": "Limit",
@@ -793,6 +933,12 @@
           },
           "hasNext": {
             "type": "boolean"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }
@@ -808,6 +954,167 @@
       "output_schema": {
         "type": "object",
         "properties": {}
+      }
+    },
+    {
+      "operation": "get_blocked_traffic",
+      "title": "Get Blocked Traffic",
+      "description": "Read the requests FortiAIGate blocked, newest first. Each record has the prompt, the response if any, the detectors that fired (name, type, side, details), the reason, the sending virtual key (name, prefix, id, status) and the key's owner. Since (the last pull time, epoch milliseconds or an ISO 8601 datetime) with an optional Until reads a custom window; without Since, Range counts back from now. The scheduled ingestion uses this to create alerts.",
+      "enabled": true,
+      "annotation": "get_blocked_traffic",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Since",
+          "type": "text",
+          "name": "since",
+          "description": "(Optional) Only blocked requests at or after this time: epoch milliseconds or an ISO 8601 datetime such as 2026-10-15T10:00:00Z. A poller passes its last pull time here. Blank reads the Range instead.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. 2026-10-15T10:00:00Z"
+        },
+        {
+          "title": "Until",
+          "type": "text",
+          "name": "until",
+          "description": "(Optional) The end of the window that starts at Since: epoch milliseconds or an ISO 8601 datetime. Default now. Needs Since.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. 2026-10-15T10:05:00Z"
+        },
+        {
+          "title": "Range",
+          "type": "select",
+          "name": "range",
+          "options": [
+            "24h",
+            "7d",
+            "month",
+            "all"
+          ],
+          "value": "24h",
+          "description": "(Optional) Used when Since is blank: the last 24 hours, 7 days, month, or all. Default 24h.",
+          "required": false,
+          "editable": true,
+          "visible": true
+        },
+        {
+          "title": "Max Items",
+          "type": "text",
+          "name": "max_items",
+          "value": "100",
+          "description": "(Optional) Most blocked requests to read, newest first. Default 100. Each one costs a request to FortiAIGate.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "placeholder": "e.g. 100"
+        },
+        {
+          "title": "Workspace ID",
+          "type": "select",
+          "name": "workspace_id",
+          "description": "(Optional) Only blocked requests in this workspace. Leave empty for every workspace the login can see.",
+          "required": false,
+          "editable": true,
+          "visible": true,
+          "apiOperation": "get_workspace_options"
+        }
+      ],
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "uuid": {
+              "type": "string"
+            },
+            "time": {
+              "type": "string"
+            },
+            "timeStamp": {
+              "type": "integer"
+            },
+            "workspace": {
+              "type": "string"
+            },
+            "user": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "requestPath": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "response": {
+              "type": "string"
+            },
+            "detectors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "string"
+                  },
+                  "side": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "reason": {
+              "type": "string"
+            },
+            "keyName": {
+              "type": "string"
+            },
+            "keyPrefix": {
+              "type": "string"
+            },
+            "keyId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "keyStatus": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ownerName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ownerEmail": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
       }
     },
     {
@@ -829,7 +1136,7 @@
     {
       "operation": "get_workspace_options",
       "title": "Get Workspace Options",
-      "description": "Populates workspace dropdowns. Returns the workspaces the configured admin can act in (own memberships first, org-wide otherwise) as title/value pairs.",
+      "description": "Populates workspace dropdowns with plain names: every workspace for an organization administrator, the login's own workspaces otherwise. The action resolves the picked name to the workspace id.",
       "enabled": true,
       "annotation": "get_workspace_options",
       "visible": false,
@@ -846,7 +1153,7 @@
     {
       "operation": "get_virtual_key_options",
       "title": "Get Virtual Key Options",
-      "description": "Populates virtual key dropdowns: key name and status, value is the key record id.",
+      "description": "Populates virtual key dropdowns with plain key names (renewed keys keep their name; when two keys share a name the one active key is used). The action resolves the picked name to the key id.",
       "enabled": true,
       "annotation": "get_virtual_key_options",
       "visible": false,
@@ -863,7 +1170,7 @@
     {
       "operation": "get_policy_options",
       "title": "Get Policy Options",
-      "description": "Populates policy dropdowns: policy name and status, value is the policy id.",
+      "description": "Populates policy dropdowns with plain policy names. The action resolves the picked name to the policy id.",
       "enabled": true,
       "annotation": "get_policy_options",
       "visible": false,
@@ -880,7 +1187,7 @@
     {
       "operation": "get_guardrail_options",
       "title": "Get Guardrail Options",
-      "description": "Populates guardrail dropdowns: guardrail name and status, value is the guardrail id.",
+      "description": "Populates guardrail dropdowns with plain guardrail names. The action resolves the picked name to the guardrail id.",
       "enabled": true,
       "annotation": "get_guardrail_options",
       "visible": false,
@@ -897,7 +1204,7 @@
     {
       "operation": "get_detector_options",
       "title": "Get Detector Options",
-      "description": "Populates detector dropdowns: built-in detectors (slug ids) then workspace detectors (uuids).",
+      "description": "Populates detector dropdowns with plain detector names: the built-in detectors, then the custom detectors. The action resolves the picked name to the detector id.",
       "enabled": true,
       "annotation": "get_detector_options",
       "visible": false,
@@ -914,7 +1221,7 @@
     {
       "operation": "get_model_options",
       "title": "Get Model Options",
-      "description": "Populates the chat completion model dropdown from the organization's model groups (public model names, i.e. the identifiers the completions endpoint accepts).",
+      "description": "Populates the chat completion model dropdown with the public model names of the model groups the login can use (the identifiers the completions endpoint accepts). Empty when the login has no model group; type the model name then.",
       "enabled": true,
       "annotation": "get_model_options",
       "visible": false,
