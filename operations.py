@@ -243,18 +243,7 @@ operations['list_policies'] = list_policies
 
 
 def get_policy(config, params):
-    client = _client(config)
-    ref = _required(params, 'policy_id')
-    if client.org_scope:
-        return client.policy(ref)
-    # pyfortiaigate's policy() reads /api/v1/admin/policies/<id> whatever the workspace, so
-    # a workspace login would get HTTP 403. Read it from the login's own policy list instead
-    # (the library resolves the name or id). Drop this once policy() takes the workspace path.
-    pid = client.resolve_policy(ref)
-    found = next((p for p in client.policies() if p.get('id') == pid), None)
-    if found is None:
-        raise LookupError('no policy {0!r} in this workspace'.format(ref))
-    return found
+    return _client(config).policy(_required(params, 'policy_id'))
 
 
 operations['get_policy'] = get_policy
