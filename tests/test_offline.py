@@ -732,8 +732,12 @@ def test_create_record_upserts_each_blocked_request_on_its_uuid():
     resource = dict(args['resource'])
     resource.pop('__replace')
     assert set(resource) == {'name', 'source', 'sourceId', 'severity', 'alertDetectionDate',
-                             'description', 'sourcedata', 'owners'}
+                             'description', 'sourcedata', 'owners', '__fieldsToUpdate'}
     assert resource['owners'] == '{{ vars.item.ownerTeams or [] }}'
+    # an update with empty owners would wipe them (readable by everyone): only write
+    # owners on an existing alert when the configuration has teams
+    assert args['resource']['__replace'] == 'true'
+    assert "(['owners'] if vars.item.ownerTeams else [])" in resource['__fieldsToUpdate']
     assert resource['sourceId'] == '{{ vars.item.uuid }}'
     assert resource['source'] == 'Fortinet FortiAIGate'
     assert resource['sourcedata'] == '{{ vars.item | toJSON }}'

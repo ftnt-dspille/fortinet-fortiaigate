@@ -481,8 +481,12 @@ playbooks:
         sourcedata: '{{ vars.item | toJSON }}'
         # The connector configuration's teams (empty when it is shared): a student's
         # Private configuration makes the alerts the student's, not the default team's.
+        # Empty owners on a create get the default team, but on an update they WIPE the
+        # owners and the alert becomes readable by everyone, so __fieldsToUpdate below
+        # writes owners on an existing alert only when there are teams to write.
         owners: '{{ vars.item.ownerTeams or [] }}'
         __replace: 'true'
+        __fieldsToUpdate: "{{ ['name', 'source', 'sourceId', 'severity', 'alertDetectionDate', 'description', 'sourcedata'] + (['owners'] if vars.item.ownerTeams else []) }}"
       next: Update Last Pull Time
 
     - name: Update Last Pull Time
