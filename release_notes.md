@@ -1,5 +1,19 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.10
+
+- The revocation playbook refuses a traffic log older than 15 minutes. A
+  privileged caller could otherwise reuse any past block uuid to revoke a
+  key they later want to kill. The window is enforced in BlockVerified
+  against the log's timeStamp; a stale request ends on
+  verification_failed, no key or secret is touched.
+- De-duplication of request_id is not enforced yet - a repeat of the same
+  fresh request still revokes. The practical blast radius is small (the
+  key is already dead after the first run; peers were already rotated),
+  but a future rev will record each faig_revoked_request on the metadata
+  and refuse duplicates server-side.
+
+## 1.6.9
 ## 1.6.9
 
 - `get_traffic_log` fails CLOSED on key resolution. When the log has a

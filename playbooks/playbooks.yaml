@@ -545,11 +545,15 @@ playbooks:
 
       - name: BlockVerified
         type: decision
+        comment: >-
+          A match is only accepted if the block fired within the last 15 minutes
+          (900000 ms). An older uuid is a replay - a privileged caller could
+          otherwise reuse any past block to revoke an arbitrary key later.
         conditions:
-          - display: Traffic log says this key_id was blocked - proceed
-            when: "{{ (vars.steps.VerifyBlock.data.keyId | default('')) == vars.key_id and ((vars.steps.VerifyBlock.data.verdict | default('') | string | lower) == 'block' or (vars.steps.VerifyBlock.data.action | default('') | string | lower) == 'block') }}"
+          - display: Fresh block in the traffic logs for this key_id - proceed
+            when: "{{ (vars.steps.VerifyBlock.data.keyId | default('')) == vars.key_id and ((vars.steps.VerifyBlock.data.verdict | default('') | string | lower) == 'block' or (vars.steps.VerifyBlock.data.action | default('') | string | lower) == 'block') and (vars.steps.VerifyBlock.data.timeStamp | default(0, true) | int) >= ((arrow.utcnow().timestamp * 1000) | int - 900000) }}"
             next: FindBadSecret
-          - display: No matching block in the traffic logs - refuse
+          - display: No matching fresh block - refuse (missing, old, or wrong key)
             default: true
             next: VerificationFailed
 

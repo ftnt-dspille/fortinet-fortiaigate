@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.6.9",
+      "name": "Sample - Fortinet FortiAIGate - 1.6.10",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -35,7 +35,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792263194,
+          "lastModifyDate": 1792266035,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/5d3f346c-4857-565d-98e3-6bef350559b9",
@@ -433,7 +433,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792263194,
+          "lastModifyDate": 1792266035,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/e02e815a-71cd-54d1-a90c-852dfcdca883",
@@ -851,7 +851,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792263194,
+          "lastModifyDate": 1792266035,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/2553cfca-e72e-509a-b1ca-68f625096293",
@@ -1430,7 +1430,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792263194,
+          "lastModifyDate": 1792266035,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/0b1f3434-f158-5c91-86a0-fe674538f81e",
@@ -1543,13 +1543,13 @@
               "arguments": {
                 "conditions": [
                   {
-                    "option": "Traffic log says this key_id was blocked - proceed",
-                    "condition": "{{ (vars.steps.VerifyBlock.data.keyId | default('')) == vars.key_id and ((vars.steps.VerifyBlock.data.verdict | default('') | string | lower) == 'block' or (vars.steps.VerifyBlock.data.action | default('') | string | lower) == 'block') }}",
+                    "option": "Fresh block in the traffic logs for this key_id - proceed",
+                    "condition": "{{ (vars.steps.VerifyBlock.data.keyId | default('')) == vars.key_id and ((vars.steps.VerifyBlock.data.verdict | default('') | string | lower) == 'block' or (vars.steps.VerifyBlock.data.action | default('') | string | lower) == 'block') and (vars.steps.VerifyBlock.data.timeStamp | default(0, true) | int) >= ((arrow.utcnow().timestamp * 1000) | int - 900000) }}",
                     "step_iri": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
                     "step_name": "FindBadSecret"
                   },
                   {
-                    "option": "No matching block in the traffic logs - refuse",
+                    "option": "No matching fresh block - refuse (missing, old, or wrong key)",
                     "default": true,
                     "step_iri": "/api/3/workflow_steps/3d7a9a45-b4ed-5893-b002-dc6f4aaf1544",
                     "step_name": "VerificationFailed"
@@ -2136,20 +2136,20 @@
               "name": "BlockVerified -> FindBadSecret",
               "targetStep": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
               "sourceStep": "/api/3/workflow_steps/e20acfb6-4956-5004-a3ff-130eedbfddbf",
-              "label": "Traffic log says this key_id was blocked - proceed",
+              "label": "Fresh block in the traffic logs for this key_id - proceed",
               "isExecuted": false,
               "group": null,
-              "uuid": "06516b89-3f63-56dd-94f8-36bfd98584ef"
+              "uuid": "084c0511-71a3-584d-b3ff-2d8118e96aa3"
             },
             {
               "@type": "WorkflowRoute",
               "name": "BlockVerified -> VerificationFailed",
               "targetStep": "/api/3/workflow_steps/3d7a9a45-b4ed-5893-b002-dc6f4aaf1544",
               "sourceStep": "/api/3/workflow_steps/e20acfb6-4956-5004-a3ff-130eedbfddbf",
-              "label": "No matching block in the traffic logs - refuse",
+              "label": "No matching fresh block - refuse (missing, old, or wrong key)",
               "isExecuted": false,
               "group": null,
-              "uuid": "a9840507-d4b8-5009-99eb-934bf65d84e5"
+              "uuid": "805cca2d-2fad-549a-937e-8f5da30d6792"
             },
             {
               "@type": "WorkflowRoute",
@@ -2409,6 +2409,23 @@
             },
             {
               "@type": "WorkflowGroup",
+              "name": "Note: BlockVerified",
+              "description": "A match is only accepted if the block fired within the last 15 minutes (900000 ms). An older uuid is a replay - a privileged caller could otherwise reuse any past block to revoke an arbitrary key later.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "668",
+              "left": "880",
+              "height": "138",
+              "width": "440",
+              "uuid": "0b7ead96-924e-5a28-8dea-3f2c2733e15e",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
               "name": "Note: TrustedWorkspace",
               "description": "Pull faig_workspace_id from the bad secret's metadata (set by onboarding), not the request body - a caller must not be able to point peer rotation at a different workspace.",
               "type": "note",
@@ -2553,8 +2570,8 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "770",
-              "left": "880",
+              "top": "826",
+              "left": "1220",
               "height": "94",
               "width": "440",
               "uuid": "e080eefb-04d4-592b-ba9a-11718aaea4be",
