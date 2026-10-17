@@ -515,16 +515,16 @@ playbooks:
           policy: "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).policy | default('') }}"
           request_id: "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).request_id | default('') }}"
           secret_folder: "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).secret_folder | default('lab') }}"
-          extend_days: "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).extend_days | default(7) | int }}"
-          max_peers: "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).max_peers | default(25) | int }}"
+          extend_days: "{{ [[((vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).extend_days | default(7) | int), 30] | min, 1] | max }}"
+          max_peers: "{{ [[((vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).max_peers | default(25) | int), 50] | min, 1] | max }}"
 
       - name: HaveKeyId
         type: decision
         conditions:
-          - display: Have key_id - continue
-            when: "{{ (vars.key_id | string | length) > 0 }}"
+          - display: Have key_id and a safe secret_folder
+            when: "{{ (vars.key_id | string | length) > 0 and vars.secret_folder and '..' not in vars.secret_folder.split('/') and '.' not in vars.secret_folder.split('/') }}"
             next: FindBadSecret
-          - display: Missing key_id - refuse
+          - display: Missing key_id or bad folder - refuse
             default: true
             next: BadRequest
 

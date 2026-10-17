@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.6.5",
+      "name": "Sample - Fortinet FortiAIGate - 1.6.6",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -35,7 +35,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792262189,
+          "lastModifyDate": 1792262603,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/5d3f346c-4857-565d-98e3-6bef350559b9",
@@ -433,7 +433,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792262189,
+          "lastModifyDate": 1792262603,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/e02e815a-71cd-54d1-a90c-852dfcdca883",
@@ -851,7 +851,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792262189,
+          "lastModifyDate": 1792262603,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/2553cfca-e72e-509a-b1ca-68f625096293",
@@ -1430,7 +1430,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792262189,
+          "lastModifyDate": 1792262603,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/0b1f3434-f158-5c91-86a0-fe674538f81e",
@@ -1474,8 +1474,8 @@
                 "policy": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).policy | default('') }}",
                 "request_id": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).request_id | default('') }}",
                 "secret_folder": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).secret_folder | default('lab') }}",
-                "extend_days": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).extend_days | default(7) | int }}",
-                "max_peers": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).max_peers | default(25) | int }}"
+                "extend_days": "{{ [[((vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).extend_days | default(7) | int), 30] | min, 1] | max }}",
+                "max_peers": "{{ [[((vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).max_peers | default(25) | int), 50] | min, 1] | max }}"
               },
               "status": null,
               "top": "250",
@@ -1491,13 +1491,13 @@
               "arguments": {
                 "conditions": [
                   {
-                    "option": "Have key_id - continue",
-                    "condition": "{{ (vars.key_id | string | length) > 0 }}",
+                    "option": "Have key_id and a safe secret_folder",
+                    "condition": "{{ (vars.key_id | string | length) > 0 and vars.secret_folder and '..' not in vars.secret_folder.split('/') and '.' not in vars.secret_folder.split('/') }}",
                     "step_iri": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
                     "step_name": "FindBadSecret"
                   },
                   {
-                    "option": "Missing key_id - refuse",
+                    "option": "Missing key_id or bad folder - refuse",
                     "default": true,
                     "step_iri": "/api/3/workflow_steps/ab2dbbbd-091f-5aa9-8224-1dc94468dbdc",
                     "step_name": "BadRequest"
@@ -2032,20 +2032,20 @@
               "name": "HaveKeyId -> FindBadSecret",
               "targetStep": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
               "sourceStep": "/api/3/workflow_steps/3587c3a5-6cbe-52d6-bad8-759aae1e3e2b",
-              "label": "Have key_id - continue",
+              "label": "Have key_id and a safe secret_folder",
               "isExecuted": false,
               "group": null,
-              "uuid": "a3356c9f-f96d-57b7-b831-ecf68ff43e80"
+              "uuid": "646b2c90-9f84-50c0-9e12-f64321037d19"
             },
             {
               "@type": "WorkflowRoute",
               "name": "HaveKeyId -> BadRequest",
               "targetStep": "/api/3/workflow_steps/ab2dbbbd-091f-5aa9-8224-1dc94468dbdc",
               "sourceStep": "/api/3/workflow_steps/3587c3a5-6cbe-52d6-bad8-759aae1e3e2b",
-              "label": "Missing key_id - refuse",
+              "label": "Missing key_id or bad folder - refuse",
               "isExecuted": false,
               "group": null,
-              "uuid": "43538470-a352-5bd4-a0b4-49bb0465b3f1"
+              "uuid": "3d4fa057-c315-5ff3-be17-b2ce0ee6487e"
             },
             {
               "@type": "WorkflowRoute",

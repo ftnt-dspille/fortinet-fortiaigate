@@ -1,5 +1,19 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.6
+
+More hardening on the revocation playbook:
+
+- `extend_days` and `max_peers` from the request body are clamped to safe
+  ranges (`1-30` days, `1-50` peers), so a caller cannot bypass the fan-out
+  cap or push the whole fleet's expiry out past the policy.
+- `secret_folder` is rejected if it contains a `.` or `..` segment, so a
+  caller cannot escape the configured app folder when searching for peers.
+- The verification of a request as a real FortiAIGate block (lookup by
+  `request_id` in the traffic logs) is left as a documented future
+  enhancement; for now the route's SOAR token is the control, so give it
+  only to systems authorized to revoke a key.
+
 ## 1.6.5
 
 Security fixes to the new revocation playbook from 1.6.4:
