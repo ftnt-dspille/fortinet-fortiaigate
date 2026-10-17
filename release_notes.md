@@ -1,5 +1,19 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.9
+
+- `get_traffic_log` fails CLOSED on key resolution. When the log has a
+  `keyPrefix`, we now require the resolved key's `keyPreview` to equal it,
+  even when only one key matches by name. Same-named keys are no longer
+  disambiguated by name alone; a candidate with a mismatched prefix is
+  dropped, not accepted as a fallback.
+- `get_traffic_log` no longer returns the raw traffic log or the prompt,
+  response or detector `details`. The one playbook that reads it needs only
+  `uuid`, `keyId`, `keyName`, `verdict`, `action`, `workspace` and the
+  detector names; everything else was being persisted in debug-mode run
+  history, including the user's prompt and the model's response.
+
+## 1.6.8
 ## 1.6.8
 
 - The revocation playbook now cross-checks the request against FortiAIGate

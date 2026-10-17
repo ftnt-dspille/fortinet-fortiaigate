@@ -151,7 +151,7 @@ class FakeState:
         self.traffic_logs = {
             'req-blocked-alpha': {
                 'uuid': 'req-blocked-alpha', 'verdict': True, 'action': 'DENY',
-                'keyAlias': 'alpha', 'keyPrefix': 'faig_...1',
+                'keyAlias': 'alpha', 'keyPrefix': 'faig-AAA-k-1',
                 'workspace': 'Default', 'user': 'alice', 'model': 'openai-gpt',
                 'requestPath': '/ai/openai/v1/chat/completions',
                 'timeStamp': 1792000000000,
@@ -159,12 +159,12 @@ class FakeState:
             },
             'req-ok-alpha': {
                 'uuid': 'req-ok-alpha', 'verdict': False, 'action': 'ALLOW',
-                'keyAlias': 'alpha', 'keyPrefix': 'faig_...1',
+                'keyAlias': 'alpha', 'keyPrefix': 'faig-AAA-k-1',
                 'workspace': 'Default', 'user': 'alice', 'timeStamp': 1792000001000,
             },
             'req-unknown-key': {
                 'uuid': 'req-unknown-key', 'verdict': True, 'action': 'DENY',
-                'keyAlias': 'ghost', 'keyPrefix': 'faig_...9',
+                'keyAlias': 'ghost', 'keyPrefix': 'faig-GHOST-9',
                 'workspace': 'Default', 'user': 'alice', 'timeStamp': 1792000002000,
             },
         }

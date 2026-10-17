@@ -490,6 +490,9 @@ def get_traffic_log(config, params):
         # when the key record carries one that matches; records without a workspace field are
         # kept (older FAIG shapes). ws from the log is a name, which connections.list_virtual_keys
         # does not resolve.
+        # Fail CLOSED: require that the log's keyPrefix matches the key record's keyPreview
+        # whenever the log carries a prefix (same-named keys share the alias; prefix uniquely
+        # identifies the secret). Workspace is only used to narrow when both sides carry it.
         def _ws_matches(k):
             wk = k.get('workspace')
             if not wk or not ws:
@@ -499,9 +502,8 @@ def get_traffic_log(config, params):
             return wk == ws
         candidates = [k for k in client.list_virtual_keys()
                       if str(k.get('keyName') or '') == alias and _ws_matches(k)]
-        if len(candidates) > 1 and prefix:
-            narrowed = [k for k in candidates if str(k.get('keyPreview') or '') == prefix]
-            candidates = narrowed or candidates
+        if prefix:
+            candidates = [k for k in candidates if str(k.get('keyPreview') or '') == prefix]
         if len(candidates) == 1:
             key_id = str(candidates[0].get('id') or '')
             key_name = str(candidates[0].get('keyName') or alias)
@@ -517,9 +519,25 @@ def get_traffic_log(config, params):
         'user': log.get('user') or '',
         'model': log.get('model') or '',
         'requestPath': log.get('requestPath') or '',
-        'detector': log.get('detector') or log.get('violation'),
-        'raw': log,
+        'detector': _detector_names(log.get('violation') or log.get('detector')),
     }
+
+
+def _detector_names(violation):
+    """Strip prompt/response and violation details; keep only detector names and type.
+    A traffic log carries the user's prompt and the model's response in cleartext;
+    returning them from this op would persist them in debug-mode run history."""
+    names = []
+    if isinstance(violation, dict):
+        for side, hits in violation.items():
+            if not hits:
+                continue
+            for h in (hits if isinstance(hits, list) else [hits]):
+                if isinstance(h, dict):
+                    names.append({'name': str(h.get('detectorName') or h.get('name') or ''),
+                                  'type': str(h.get('type') or ''),
+                                  'side': str(side)})
+    return names
 
 
 operations['get_traffic_log'] = get_traffic_log
