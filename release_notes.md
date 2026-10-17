@@ -1,5 +1,24 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.4
+
+- New sample playbook **Revoke FortiAIGate Key on Guardrail Block**: an
+  `api_endpoint` playbook that revokes the virtual key named in a FortiAIGate
+  guardrail-block event, clears its Vault secret with `api_key=REVOKED` and
+  stamps `faig_revoked_at` / `faig_revoked_policy` / `faig_revoked_request`,
+  then rotates every peer secret tagged with the same `faig_workspace_id` so
+  the blast radius is contained. Peers are rotated through the existing child
+  **Renew FortiAIGate Key in Vault**, so each keeps its key id, policies,
+  limits and model access and only the Vault secret's `api_key` field
+  changes. Outcomes: `revoked_and_rotated`, `revoked_no_peers`,
+  `revoked_orphan` (no tagged secret), `too_many_peers` (over `max_peers`),
+  `conflict` (two secrets tagged to the same bad key) and `bad_request`.
+- **Onboard FortiAIGate Key to Vault** also stamps `faig_workspace_id` on the
+  new secret, from the key's resolved workspace id. The renewal playbooks are
+  unaffected (they match on `faig_key_id`), but revocation needs this join
+  column. A one-time backfill script (`scripts/backfill_workspace_tag.py`)
+  adds it to pre-1.6.4 secrets.
+
 ## 1.6.3
 
 - **Onboard FortiAIGate Key to Vault** checks the secret path before any Vault

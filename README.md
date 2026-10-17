@@ -73,6 +73,20 @@ reads each secret's metadata; it never reads a secret value.
   (`path_in_use`), and the key is revoked if the Vault write fails. The trigger
   returns a `task_id`; the last step returns `key_name`, `secret_path`,
   `key_id`, `expires_at` and `outcome`.
+- **Revoke FortiAIGate Key on Guardrail Block** (API endpoint
+  `POST /api/triggers/1/fortiaigate/guardrail-block`, token authentication):
+  reacts to a FortiAIGate DLP, ATLAS or detector block. Body: `key_id`
+  (required), `workspace_id`, `policy`, `request_id`, `secret_folder` (default
+  `lab`), `extend_days` (default 7), `max_peers` (default 25). Revokes the bad
+  key FIRST (attacker loses access while the run finishes the rest), clears the
+  Vault secret the key was in (`api_key=REVOKED`), stamps `faig_revoked_at`,
+  `faig_revoked_policy` and `faig_revoked_request` on it, then rotates every
+  peer secret under `secret_folder` tagged with the same `faig_workspace_id`
+  through the child renewal. Over `max_peers` the run flags only (contains a
+  loud blast radius). Outcomes: `revoked_and_rotated`, `revoked_no_peers`,
+  `revoked_orphan`, `too_many_peers`, `conflict`, `bad_request`. Needs
+  `faig_workspace_id` on each tagged secret: onboarding stamps it, and
+  `scripts/backfill_workspace_tag.py` fills in secrets created before 1.6.4.
 
 What has to be in place:
 

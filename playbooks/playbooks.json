@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.6.3",
+      "name": "Sample - Fortinet FortiAIGate - 1.6.4",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -35,7 +35,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792194953,
+          "lastModifyDate": 1792261198,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/5d3f346c-4857-565d-98e3-6bef350559b9",
@@ -433,7 +433,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792194953,
+          "lastModifyDate": 1792261198,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/e02e815a-71cd-54d1-a90c-852dfcdca883",
@@ -851,7 +851,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792194953,
+          "lastModifyDate": 1792261198,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/2553cfca-e72e-509a-b1ca-68f625096293",
@@ -1102,7 +1102,7 @@
                 "config": "",
                 "params": {
                   "path": "{{ vars.secret_path }}",
-                  "custom_metadata": "{{ {\"faig_key_id\": vars.steps.CreateKey.data.id, \"faig_key_name\": vars.steps.CreateKey.data.keyName,\n    \"faig_expires_at\": vars.steps.CreateKey.data.expiresAt | default(\"\"),\n    \"faig_created_at\": vars.steps.CreateKey.data.createdAt | default(\"\")} | tojson }}"
+                  "custom_metadata": "{{ {\"faig_key_id\": vars.steps.CreateKey.data.id, \"faig_key_name\": vars.steps.CreateKey.data.keyName,\n    \"faig_workspace_id\": vars.steps.CreateKey.data.workspace.id | default(vars.workspace | default(\"\")),\n    \"faig_expires_at\": vars.steps.CreateKey.data.expiresAt | default(\"\"),\n    \"faig_created_at\": vars.steps.CreateKey.data.createdAt | default(\"\")} | tojson }}"
                 },
                 "version": "1.2.1",
                 "name": "HashiCorp Vault KV",
@@ -1412,6 +1412,784 @@
           "playbookOrigin": null,
           "isEditable": true,
           "uuid": "eaf75027-d46d-514d-8f03-b3268d08baab",
+          "owners": [],
+          "isPrivate": false
+        },
+        {
+          "@type": "Workflow",
+          "name": "Revoke FortiAIGate Key on Guardrail Block",
+          "aliasName": null,
+          "tag": "",
+          "recordTags": [],
+          "description": "API endpoint that reacts to a FortiAIGate guardrail block (DLP, ATLAS or any detector verdict the gateway refuses): revokes the bad virtual key, clears the Vault secret that holds it, then rotates every other key stored under the same workspace so a run cannot leave a working peer behind. POST a JSON body: key_id (required), workspace_id, policy (name of the guardrail that blocked, kept in metadata for audit), request_id (the FortiAIGate request uuid, kept in metadata), secret_folder (default lab), extend_days (default 7, used when rotating peers), max_peers (default 25).\nThe bad key is revoked FIRST so the attacker cannot use it while the run is still working. The Vault secret keyed by its faig_key_id tag has its api_key replaced with \"REVOKED\" (apps that read it fail-closed) and is stamped with faig_revoked_at, faig_revoked_policy and faig_revoked_request. Peers are the other secrets tagged with the same faig_workspace_id - rotated through the child \"Renew FortiAIGate Key in Vault\". If no peers are tagged (the workspace has one app, or the backfill has not run), peers_rotated is empty and the run still ends green - the bad key is already dead. Over the max_peers cap, the run ends with outcome=too_many_peers and no peer is rotated.\nDebug mode is on so the API caller can read the summary from the last step. That also stores step results (the new peers' secrets) in the run history until the next rotation or log purge.",
+          "isActive": true,
+          "debug": true,
+          "singleRecordExecution": false,
+          "remoteExecutableFlag": 0,
+          "parameters": [
+            "api_body"
+          ],
+          "synchronous": false,
+          "lastModifyDate": 1792261198,
+          "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
+          "versions": [],
+          "triggerStep": "/api/3/workflow_steps/0b1f3434-f158-5c91-86a0-fe674538f81e",
+          "steps": [
+            {
+              "@type": "WorkflowStep",
+              "name": "Start",
+              "description": null,
+              "arguments": {
+                "route": "fortiaigate/guardrail-block",
+                "authentication_methods": [
+                  ""
+                ],
+                "step_variables": {
+                  "input": {
+                    "params": {
+                      "api_body": "{{vars.request.data}}",
+                      "api_params": "{{vars.request.params}}"
+                    }
+                  }
+                },
+                "triggerOnSource": true,
+                "triggerOnReplicate": false,
+                "__triggerLimit": true
+              },
+              "status": null,
+              "top": "120",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/df26c7a2-4166-4ca5-91e5-548e24c01b5f",
+              "group": null,
+              "uuid": "0b1f3434-f158-5c91-86a0-fe674538f81e"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "ParseRequest",
+              "description": null,
+              "arguments": {
+                "request_body": "{{ vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true)) }}",
+                "key_id": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).key_id | default('') }}",
+                "workspace_id": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).workspace_id | default('') }}",
+                "policy": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).policy | default('') }}",
+                "request_id": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).request_id | default('') }}",
+                "secret_folder": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).secret_folder | default('lab') }}",
+                "extend_days": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).extend_days | default(7) | int }}",
+                "max_peers": "{{ (vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true))).max_peers | default(25) | int }}"
+              },
+              "status": null,
+              "top": "250",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "df34bb56-fedf-5bae-9585-dc731f45e1c3"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "HaveKeyId",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Have key_id - continue",
+                    "condition": "{{ (vars.key_id | string | length) > 0 }}",
+                    "step_iri": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
+                    "step_name": "FindBadSecret"
+                  },
+                  {
+                    "option": "Missing key_id - refuse",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/ab2dbbbd-091f-5aa9-8224-1dc94468dbdc",
+                    "step_name": "BadRequest"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "380",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "3587c3a5-6cbe-52d6-bad8-759aae1e3e2b"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "FindBadSecret",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "find_secrets_by_metadata",
+                "config": "",
+                "params": {
+                  "path": "{{ vars.secret_folder }}",
+                  "metadata_key": "faig_key_id",
+                  "values": "{{ [vars.key_id] | tojson }}",
+                  "max_paths": 1000
+                },
+                "version": "1.2.1",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Find Secrets by Metadata",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "510",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "BadSecretMatched",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Exactly one tagged secret - revoke and clear it",
+                    "condition": "{{ (vars.steps.FindBadSecret.data.matches | length) == 1 }}",
+                    "step_iri": "/api/3/workflow_steps/6c6e97d9-4c98-509d-8137-ff46924df7b5",
+                    "step_name": "RevokeKey"
+                  },
+                  {
+                    "option": "No tagged secret - revoke the key only",
+                    "condition": "{{ (vars.steps.FindBadSecret.data.matches | length) == 0 and (vars.steps.FindBadSecret.data.conflicts | length) == 0 }}",
+                    "step_iri": "/api/3/workflow_steps/19f56f97-a944-5f16-a5b2-998c890e425a",
+                    "step_name": "RevokeOrphan"
+                  },
+                  {
+                    "option": "Conflict (same key tagged on 2+ secrets) - flag for a person",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/ef47cf37-023c-53a4-949a-122db94078c6",
+                    "step_name": "Conflict"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "640",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "e6bcebb4-bacb-5e34-bc88-7fdaa1e280e5"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "RevokeKey",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "revoke_virtual_key",
+                "config": "",
+                "ignore_errors": true,
+                "params": {
+                  "key_id": "{{ vars.key_id }}"
+                },
+                "version": "1.6.3",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Revoke Virtual Key",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "770",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "6c6e97d9-4c98-509d-8137-ff46924df7b5"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "ClearSecret",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "patch_secret",
+                "config": "",
+                "ignore_errors": true,
+                "params": {
+                  "path": "{{ vars.steps.FindBadSecret.data.matches[0].path }}",
+                  "secret_data": "{{ {\"api_key\": \"REVOKED\"} | tojson }}"
+                },
+                "version": "1.2.1",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Update Secret Fields",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "900",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "08066222-a0dc-5823-abaa-ab163731f2dd"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "SetStamp",
+              "description": null,
+              "arguments": {
+                "revoked_at": "{{ arrow.utcnow().isoformat() }}"
+              },
+              "status": null,
+              "top": "1030",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "c820f230-6c75-5fcf-92ac-0f2087237f28"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "StampRevoked",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "patch_metadata",
+                "config": "",
+                "ignore_errors": true,
+                "params": {
+                  "path": "{{ vars.steps.FindBadSecret.data.matches[0].path }}",
+                  "custom_metadata": "{{ {\"faig_revoked_at\": vars.revoked_at,\n    \"faig_revoked_policy\": vars.policy,\n    \"faig_revoked_request\": vars.request_id} | tojson }}"
+                },
+                "version": "1.2.1",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Update Secret Metadata",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "1160",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "52cded70-ec07-57be-8789-fed718484d5e"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "RevokeOrphan",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "revoke_virtual_key",
+                "config": "",
+                "ignore_errors": true,
+                "params": {
+                  "key_id": "{{ vars.key_id }}"
+                },
+                "version": "1.6.3",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Revoke Virtual Key",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "770",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "19f56f97-a944-5f16-a5b2-998c890e425a"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "FindPeers",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "find_secrets_by_metadata",
+                "config": "",
+                "params": {
+                  "path": "{{ vars.secret_folder }}",
+                  "metadata_key": "faig_workspace_id",
+                  "values": "{{ [vars.workspace_id] | tojson }}",
+                  "max_paths": 1000
+                },
+                "version": "1.2.1",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Find Secrets by Metadata",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "1290",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "a0caf9f4-dc3a-5f60-9397-9f02884c7e2d"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "PeerCount",
+              "description": null,
+              "arguments": {
+                "bad_path": "{{ vars.steps.FindBadSecret.data.matches[0].path }}",
+                "peers": "{{ (vars.steps.FindPeers.data.tagged | default([]))\n   | rejectattr(\"path\", \"equalto\", vars.steps.FindBadSecret.data.matches[0].path) | list }}"
+              },
+              "status": null,
+              "top": "1420",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "bb32fd05-dfd6-5bac-b0a1-15d8f24bb735"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "PeerDecision",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Over the max_peers cap - flag, do not rotate",
+                    "condition": "{{ (vars.peers | length) > (vars.max_peers | int) }}",
+                    "step_iri": "/api/3/workflow_steps/7f3c6eb4-225b-5ac1-b42f-62d0156e773e",
+                    "step_name": "TooManyPeers"
+                  },
+                  {
+                    "option": "Peers to rotate",
+                    "condition": "{{ (vars.peers | length) > 0 }}",
+                    "step_iri": "/api/3/workflow_steps/5c67dd16-b5c8-560b-bc00-2ec5c2873691",
+                    "step_name": "RotatePeers"
+                  },
+                  {
+                    "option": "No peers - done",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/f86edd35-69f2-5e78-89ee-e886e8f8af99",
+                    "step_name": "NoPeers"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "1550",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "3b750b80-5e0d-51e7-8f36-06f4a67b163c"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "RotatePeers",
+              "description": null,
+              "arguments": {
+                "apply_async": false,
+                "pass_parent_env": false,
+                "pass_input_record": false,
+                "arguments": {
+                  "key_id": "{{ vars.item.custom_metadata.faig_key_id }}",
+                  "secret_path": "{{ vars.item.path }}",
+                  "extend_days": "{{ vars.extend_days }}"
+                },
+                "workflowReference": "/api/3/workflows/c115101d-845d-5757-8c43-2526b5d0c0da",
+                "for_each": {
+                  "item": "{{ vars.peers }}",
+                  "parallel": false,
+                  "condition": ""
+                }
+              },
+              "status": null,
+              "top": "1680",
+              "left": "880",
+              "stepType": "/api/3/workflow_step_types/74932bdc-b8b6-4d24-88c4-1a4dfbc524f3",
+              "group": null,
+              "uuid": "5c67dd16-b5c8-560b-bc00-2ec5c2873691"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "Revoked",
+              "description": null,
+              "arguments": {
+                "outcome": "revoked_and_rotated",
+                "revoked_key": "{{ vars.key_id }}",
+                "revoked_secret": "{{ vars.steps.FindBadSecret.data.matches[0].path }}",
+                "policy": "{{ vars.policy }}",
+                "request_id": "{{ vars.request_id }}",
+                "peers_rotated": "{{ (vars.steps.RotatePeers | default([], true))\n   | selectattr(\"outcome\", \"defined\")\n   | selectattr(\"outcome\", \"in\", [\"renewed\", \"renewed_unverified\"]) | list }}",
+                "peers_failed": "{{ (vars.steps.RotatePeers | default([], true))\n   | selectattr(\"outcome\", \"defined\")\n   | rejectattr(\"outcome\", \"in\", [\"renewed\", \"renewed_unverified\"]) | list }}"
+              },
+              "status": null,
+              "top": "1810",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "43aee244-a52f-5547-9c20-0b993855d1ce"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "NoPeers",
+              "description": null,
+              "arguments": {
+                "outcome": "{{ \"revoked_no_peers\" if (vars.steps.FindBadSecret.data.matches | length) == 1 else \"revoked_orphan\" }}",
+                "revoked_key": "{{ vars.key_id }}",
+                "revoked_secret": "{{ vars.steps.FindBadSecret.data.matches[0].path if (vars.steps.FindBadSecret.data.matches | length) == 1 else \"\" }}",
+                "policy": "{{ vars.policy }}",
+                "request_id": "{{ vars.request_id }}",
+                "peers_rotated": [],
+                "peers_failed": []
+              },
+              "status": null,
+              "top": "1680",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "f86edd35-69f2-5e78-89ee-e886e8f8af99"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "TooManyPeers",
+              "description": null,
+              "arguments": {
+                "outcome": "too_many_peers",
+                "revoked_key": "{{ vars.key_id }}",
+                "revoked_secret": "{{ vars.steps.FindBadSecret.data.matches[0].path }}",
+                "policy": "{{ vars.policy }}",
+                "request_id": "{{ vars.request_id }}",
+                "peer_count": "{{ vars.peers | length }}",
+                "max_peers": "{{ vars.max_peers }}",
+                "peers_rotated": [],
+                "peers_failed": []
+              },
+              "status": null,
+              "top": "1680",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "7f3c6eb4-225b-5ac1-b42f-62d0156e773e"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "Conflict",
+              "description": null,
+              "arguments": {
+                "outcome": "conflict",
+                "revoked_key": "",
+                "revoked_secret": "",
+                "policy": "{{ vars.policy }}",
+                "request_id": "{{ vars.request_id }}",
+                "conflicts": "{{ vars.steps.FindBadSecret.data.conflicts }}",
+                "peers_rotated": [],
+                "peers_failed": []
+              },
+              "status": null,
+              "top": "770",
+              "left": "880",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "ef47cf37-023c-53a4-949a-122db94078c6"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "BadRequest",
+              "description": null,
+              "arguments": {
+                "outcome": "bad_request",
+                "error": "key_id is required",
+                "peers_rotated": [],
+                "peers_failed": []
+              },
+              "status": null,
+              "top": "510",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "ab2dbbbd-091f-5aa9-8224-1dc94468dbdc"
+            }
+          ],
+          "routes": [
+            {
+              "@type": "WorkflowRoute",
+              "name": "Start -> ParseRequest",
+              "targetStep": "/api/3/workflow_steps/df34bb56-fedf-5bae-9585-dc731f45e1c3",
+              "sourceStep": "/api/3/workflow_steps/0b1f3434-f158-5c91-86a0-fe674538f81e",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "792f3acf-ae3f-5f91-ac9b-1e5bcae5ed6d"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "ParseRequest -> HaveKeyId",
+              "targetStep": "/api/3/workflow_steps/3587c3a5-6cbe-52d6-bad8-759aae1e3e2b",
+              "sourceStep": "/api/3/workflow_steps/df34bb56-fedf-5bae-9585-dc731f45e1c3",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "3bf9e1ca-6134-5fa2-a06b-e37a089a6320"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "HaveKeyId -> FindBadSecret",
+              "targetStep": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
+              "sourceStep": "/api/3/workflow_steps/3587c3a5-6cbe-52d6-bad8-759aae1e3e2b",
+              "label": "Have key_id - continue",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "a3356c9f-f96d-57b7-b831-ecf68ff43e80"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "HaveKeyId -> BadRequest",
+              "targetStep": "/api/3/workflow_steps/ab2dbbbd-091f-5aa9-8224-1dc94468dbdc",
+              "sourceStep": "/api/3/workflow_steps/3587c3a5-6cbe-52d6-bad8-759aae1e3e2b",
+              "label": "Missing key_id - refuse",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "43538470-a352-5bd4-a0b4-49bb0465b3f1"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "FindBadSecret -> BadSecretMatched",
+              "targetStep": "/api/3/workflow_steps/e6bcebb4-bacb-5e34-bc88-7fdaa1e280e5",
+              "sourceStep": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "ef9804a8-a2f0-5d33-8ab0-1cbdc1370680"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "BadSecretMatched -> RevokeKey",
+              "targetStep": "/api/3/workflow_steps/6c6e97d9-4c98-509d-8137-ff46924df7b5",
+              "sourceStep": "/api/3/workflow_steps/e6bcebb4-bacb-5e34-bc88-7fdaa1e280e5",
+              "label": "Exactly one tagged secret - revoke and clear it",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "e502a847-4d7e-53d4-ac06-6ce41b205b9f"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "BadSecretMatched -> RevokeOrphan",
+              "targetStep": "/api/3/workflow_steps/19f56f97-a944-5f16-a5b2-998c890e425a",
+              "sourceStep": "/api/3/workflow_steps/e6bcebb4-bacb-5e34-bc88-7fdaa1e280e5",
+              "label": "No tagged secret - revoke the key only",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "d2ef6c85-2698-5584-8cce-26dde07c4458"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "BadSecretMatched -> Conflict",
+              "targetStep": "/api/3/workflow_steps/ef47cf37-023c-53a4-949a-122db94078c6",
+              "sourceStep": "/api/3/workflow_steps/e6bcebb4-bacb-5e34-bc88-7fdaa1e280e5",
+              "label": "Conflict (same key tagged on 2+ secrets) - flag for a person",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "29cf1541-aff3-5106-b832-40e79713506b"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "RevokeKey -> ClearSecret",
+              "targetStep": "/api/3/workflow_steps/08066222-a0dc-5823-abaa-ab163731f2dd",
+              "sourceStep": "/api/3/workflow_steps/6c6e97d9-4c98-509d-8137-ff46924df7b5",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "a8a774fb-054c-592d-82fc-dcf2b6c485b1"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "ClearSecret -> SetStamp",
+              "targetStep": "/api/3/workflow_steps/c820f230-6c75-5fcf-92ac-0f2087237f28",
+              "sourceStep": "/api/3/workflow_steps/08066222-a0dc-5823-abaa-ab163731f2dd",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "54fd9981-8a90-5efe-8375-ddafd78b5804"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "SetStamp -> StampRevoked",
+              "targetStep": "/api/3/workflow_steps/52cded70-ec07-57be-8789-fed718484d5e",
+              "sourceStep": "/api/3/workflow_steps/c820f230-6c75-5fcf-92ac-0f2087237f28",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "5808533b-278f-58ec-9652-6f774cc1e73b"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "StampRevoked -> FindPeers",
+              "targetStep": "/api/3/workflow_steps/a0caf9f4-dc3a-5f60-9397-9f02884c7e2d",
+              "sourceStep": "/api/3/workflow_steps/52cded70-ec07-57be-8789-fed718484d5e",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "942232a9-d767-5684-87e2-80122d291251"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "RevokeOrphan -> NoPeers",
+              "targetStep": "/api/3/workflow_steps/f86edd35-69f2-5e78-89ee-e886e8f8af99",
+              "sourceStep": "/api/3/workflow_steps/19f56f97-a944-5f16-a5b2-998c890e425a",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "f5fa565f-6d15-5312-84df-d4cb8b0eed56"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "FindPeers -> PeerCount",
+              "targetStep": "/api/3/workflow_steps/bb32fd05-dfd6-5bac-b0a1-15d8f24bb735",
+              "sourceStep": "/api/3/workflow_steps/a0caf9f4-dc3a-5f60-9397-9f02884c7e2d",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "f32cf386-c522-5fb1-a627-9bbe823ec049"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "PeerCount -> PeerDecision",
+              "targetStep": "/api/3/workflow_steps/3b750b80-5e0d-51e7-8f36-06f4a67b163c",
+              "sourceStep": "/api/3/workflow_steps/bb32fd05-dfd6-5bac-b0a1-15d8f24bb735",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "4d8e2648-b5d7-5841-9ab4-a748e0bd96bb"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "PeerDecision -> TooManyPeers",
+              "targetStep": "/api/3/workflow_steps/7f3c6eb4-225b-5ac1-b42f-62d0156e773e",
+              "sourceStep": "/api/3/workflow_steps/3b750b80-5e0d-51e7-8f36-06f4a67b163c",
+              "label": "Over the max_peers cap - flag, do not rotate",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "f26a7b17-d766-5802-baa1-65ca1a39d770"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "PeerDecision -> RotatePeers",
+              "targetStep": "/api/3/workflow_steps/5c67dd16-b5c8-560b-bc00-2ec5c2873691",
+              "sourceStep": "/api/3/workflow_steps/3b750b80-5e0d-51e7-8f36-06f4a67b163c",
+              "label": "Peers to rotate",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "f3e6b3e0-9e3f-530f-89a7-77da50df536b"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "PeerDecision -> NoPeers",
+              "targetStep": "/api/3/workflow_steps/f86edd35-69f2-5e78-89ee-e886e8f8af99",
+              "sourceStep": "/api/3/workflow_steps/3b750b80-5e0d-51e7-8f36-06f4a67b163c",
+              "label": "No peers - done",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "4737f8ed-028b-5f34-928b-7c573b48a666"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "RotatePeers -> Revoked",
+              "targetStep": "/api/3/workflow_steps/43aee244-a52f-5547-9c20-0b993855d1ce",
+              "sourceStep": "/api/3/workflow_steps/5c67dd16-b5c8-560b-bc00-2ec5c2873691",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "0e80b7bb-5350-5d06-81b2-8991f5b16fc3"
+            }
+          ],
+          "groups": [
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: ParseRequest",
+              "description": "The API body arrives as a raw JSON string in vars.request.body.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "250",
+              "left": "540",
+              "height": "94",
+              "width": "440",
+              "uuid": "ddeba8fb-f3a5-5637-9700-1b9bf0e3c4ed",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: ClearSecret",
+              "description": "Patch api_key to REVOKED; other secret fields (base_url, model) are kept.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "906",
+              "left": "540",
+              "height": "94",
+              "width": "440",
+              "uuid": "0aacf9cc-7536-5f26-8e62-ad7c35fd89e5",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: RevokeOrphan",
+              "description": "No Vault secret is tagged with this key - it is either an unmanaged key or one not yet backfilled. We still revoke it.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "770",
+              "left": "1220",
+              "height": "116",
+              "width": "440",
+              "uuid": "d21e6531-bcb6-585e-8fe3-9af3c94c78bb",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: FindPeers",
+              "description": "Peers are the OTHER secrets tagged with this workspace. The bad secret shares the tag, so we filter it out next.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "1290",
+              "left": "540",
+              "height": "94",
+              "width": "440",
+              "uuid": "00fc1f24-5643-5049-832c-9098e0c32291",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: PeerCount",
+              "description": "Drop the bad secret from the peer list.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "1420",
+              "left": "540",
+              "height": "72",
+              "width": "440",
+              "uuid": "777adf99-106f-5bec-985f-7d796ca5c77e",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: RotatePeers",
+              "description": "One child run per peer. apply_async=false so the summary step sees the children's set_variable outputs.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "1680",
+              "left": "1220",
+              "height": "94",
+              "width": "440",
+              "uuid": "68608e60-fbc7-54a1-8015-ce6be2f5a8c0",
+              "recordTags": []
+            }
+          ],
+          "priority": "/api/3/picklists/9e8d41e4-8ada-4a2c-bd02-07f62c6d0a00",
+          "playbookOrigin": null,
+          "isEditable": true,
+          "uuid": "c7ec2a09-3df4-5d11-8bc5-03fc83aa8bb8",
           "owners": [],
           "isPrivate": false
         }
