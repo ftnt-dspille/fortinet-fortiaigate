@@ -543,9 +543,9 @@ playbooks:
       - name: BadSecretMatched
         type: decision
         conditions:
-          - display: Exactly one tagged secret - revoke and clear it
+          - display: Exactly one tagged secret - resolve its workspace and revoke
             when: "{{ (vars.steps.FindBadSecret.data.matches | length) == 1 }}"
-            next: RevokeKey
+            next: TrustedWorkspace
           - display: No tagged secret - revoke the key only
             when: "{{ (vars.steps.FindBadSecret.data.matches | length) == 0 and (vars.steps.FindBadSecret.data.conflicts | length) == 0 }}"
             next: RevokeOrphan
@@ -553,15 +553,35 @@ playbooks:
             default: true
             next: Conflict
 
+      - name: TrustedWorkspace
+        type: set_variable
+        next: RevokeKey
+        comment: >-
+          Pull faig_workspace_id from the bad secret's metadata (set by onboarding),
+          not the request body - a caller must not be able to point peer rotation
+          at a different workspace.
+        vars:
+          workspace_id: "{{ (vars.steps.FindBadSecret.data.tagged | selectattr('path','equalto', vars.steps.FindBadSecret.data.matches[0].path) | first).custom_metadata.faig_workspace_id | default('', true) }}"
+
       - name: RevokeKey
         type: connector
-        next: ClearSecret
+        next: RevokeOK
         connector: fortinet-fortiaigate
         operation: revoke_virtual_key
         config: ''
         ignore_errors: true
         params:
           key_id: '{{ vars.key_id }}'
+
+      - name: RevokeOK
+        type: decision
+        conditions:
+          - display: Key revoked
+            when: "{{ (vars.steps.RevokeKey.data.status | default('') | string | lower) == 'revoked' }}"
+            next: ClearSecret
+          - display: Revoke failed - do NOT clear Vault, alert a person
+            default: true
+            next: RevokeFailed
 
       - name: ClearSecret
         type: connector
@@ -583,7 +603,7 @@ playbooks:
 
       - name: StampRevoked
         type: connector
-        next: FindPeers
+        next: HaveWorkspace
         connector: hashicorp-vault-kv
         operation: patch_metadata
         config: ''
@@ -591,13 +611,38 @@ playbooks:
         params:
           path: '{{ vars.steps.FindBadSecret.data.matches[0].path }}'
           custom_metadata: >-
-            {{ {"faig_revoked_at": vars.revoked_at,
-                "faig_revoked_policy": vars.policy,
-                "faig_revoked_request": vars.request_id} | tojson }}
+            {{ ({"faig_revoked_at": vars.revoked_at}
+                | combine({"faig_revoked_policy": vars.policy} if vars.policy else {})
+                | combine({"faig_revoked_request": vars.request_id} if vars.request_id else {})
+               ) | tojson }}
+
+      - name: HaveWorkspace
+        type: decision
+        comment: 'Empty workspace could over-match - skip peer rotation and end with revoked_no_peers.'
+        conditions:
+          - display: Workspace known - rotate peers
+            when: "{{ (vars.workspace_id | string | length) > 0 }}"
+            next: FindPeers
+          - display: No workspace - do not rotate anything else
+            default: true
+            next: NoPeers
+
+      - name: RevokeFailed
+        type: set_variable
+        comment: 'Revoke was refused by the gateway. Do NOT clear Vault - app is still live on the current secret.'
+        vars:
+          outcome: revoke_failed
+          revoked_key: '{{ vars.key_id }}'
+          revoked_secret: ''
+          policy: '{{ vars.policy }}'
+          request_id: '{{ vars.request_id }}'
+          error: 'revoke refused by the gateway - see the run step for details' 
+          peers_rotated: []
+          peers_failed: []
 
       - name: RevokeOrphan
         type: connector
-        next: NoPeers
+        next: RevokeOrphanOK
         connector: fortinet-fortiaigate
         operation: revoke_virtual_key
         config: ''
@@ -607,6 +652,16 @@ playbooks:
           unmanaged key or one not yet backfilled. We still revoke it.
         params:
           key_id: '{{ vars.key_id }}'
+
+      - name: RevokeOrphanOK
+        type: decision
+        conditions:
+          - display: Orphan key revoked
+            when: "{{ (vars.steps.RevokeOrphan.data.status | default('') | string | lower) == 'revoked' }}"
+            next: NoPeers
+          - display: Revoke of orphan failed - alert
+            default: true
+            next: RevokeFailed
 
       - name: FindPeers
         type: connector

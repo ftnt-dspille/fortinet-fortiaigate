@@ -1,5 +1,23 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.5
+
+Security fixes to the new revocation playbook from 1.6.4:
+
+- The workspace used for peer rotation now comes from the bad secret's own
+  Vault metadata (set by onboarding, trusted). The `workspace_id` in the
+  caller's request body is ignored - a caller could otherwise point peer
+  rotation at a different workspace.
+- An empty workspace never fans out. If the bad secret has no
+  `faig_workspace_id` tag, the run ends on `revoked_no_peers` instead of
+  looking for secrets tagged with "".
+- A failed `revoke_virtual_key` is now a terminal `revoke_failed`, not a
+  success. On the error path the Vault secret is NOT cleared (the app would
+  otherwise fail-closed while the attacker's key is still live) and no peers
+  are rotated. A person is paged.
+- Metadata patches skip empty values so Vault's non-empty-value check
+  doesn't fail the stamp (`faig_revoked_request` is optional).
+
 ## 1.6.4
 
 - New sample playbook **Revoke FortiAIGate Key on Guardrail Block**: an
