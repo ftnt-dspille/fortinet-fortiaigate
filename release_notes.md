@@ -1,5 +1,12 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.3
+
+- **Onboard FortiAIGate Key to Vault** checks the secret path before any Vault
+  call, so a path with a `.` or `..` segment returns `secret_path_not_allowed` to
+  the caller instead of failing the run (`hashicorp-vault-kv` 1.2.1 refuses such
+  a path itself). Sample playbooks are built against `hashicorp-vault-kv` 1.2.1.
+
 ## 1.6.2
 
 - An id of `.` or `..` (or an empty one) is refused before any API call. URL

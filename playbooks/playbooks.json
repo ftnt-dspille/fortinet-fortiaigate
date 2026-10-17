@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.6.2",
+      "name": "Sample - Fortinet FortiAIGate - 1.6.3",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -35,7 +35,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792191188,
+          "lastModifyDate": 1792194953,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/5d3f346c-4857-565d-98e3-6bef350559b9",
@@ -114,7 +114,7 @@
                   "within_days": "{{ vars.within_days }}",
                   "include_expired": true
                 },
-                "version": "1.6.2",
+                "version": "1.6.3",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "List Expiring Virtual Keys",
                 "step_variables": [],
@@ -141,7 +141,7 @@
                   "values": "{{ vars.steps.ListExpiringKeys.data.key_ids | tojson }}",
                   "max_paths": 1000
                 },
-                "version": "1.2.0",
+                "version": "1.2.1",
                 "name": "HashiCorp Vault KV",
                 "operationTitle": "Find Secrets by Metadata",
                 "step_variables": [],
@@ -433,7 +433,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792191188,
+          "lastModifyDate": 1792194953,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/e02e815a-71cd-54d1-a90c-852dfcdca883",
@@ -486,7 +486,7 @@
                   "expires_in_days": "{{ vars.extend_days }}"
                 },
                 "ignore_errors": true,
-                "version": "1.6.2",
+                "version": "1.6.3",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Renew Virtual Key",
                 "step_variables": [],
@@ -540,7 +540,7 @@
                   "retries": 3
                 },
                 "ignore_errors": true,
-                "version": "1.2.0",
+                "version": "1.2.1",
                 "name": "HashiCorp Vault KV",
                 "operationTitle": "Update Secret Fields",
                 "step_variables": [],
@@ -593,7 +593,7 @@
                   "custom_metadata": "{{ {\"faig_key_id\": vars.key_id, \"faig_key_name\": vars.steps.RenewKey.data.key.keyName | default(\"\"),\n    \"faig_expires_at\": vars.steps.RenewKey.data.expires_at | default(\"\"),\n    \"faig_rotated_at\": vars.steps.RenewKey.data.key.updatedAt | default(\"\")} | tojson }}"
                 },
                 "ignore_errors": true,
-                "version": "1.2.0",
+                "version": "1.2.1",
                 "name": "HashiCorp Vault KV",
                 "operationTitle": "Update Secret Metadata",
                 "step_variables": [],
@@ -617,7 +617,7 @@
                 "params": {
                   "api_key": "{{ vars.steps.RenewKey.data.new_secret }}"
                 },
-                "version": "1.6.2",
+                "version": "1.6.3",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -851,7 +851,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792191188,
+          "lastModifyDate": 1792194953,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/2553cfca-e72e-509a-b1ca-68f625096293",
@@ -906,6 +906,33 @@
             },
             {
               "@type": "WorkflowStep",
+              "name": "PathAllowed",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Path given and allowed",
+                    "condition": "{{ vars.secret_path and '..' not in vars.secret_path.split('/') and '.' not in vars.secret_path.split('/') }}",
+                    "step_iri": "/api/3/workflow_steps/da566cb1-2a12-586c-9a05-4b954d9eb560",
+                    "step_name": "CheckPathFree"
+                  },
+                  {
+                    "option": "Path missing or not allowed",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/a9978877-09fe-5c7a-814d-f49b6c1a030d",
+                    "step_name": "PathInUse"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "380",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "4691ecf5-2be7-5ed9-a72f-9b181e3e3d86"
+            },
+            {
+              "@type": "WorkflowStep",
               "name": "CheckPathFree",
               "description": null,
               "arguments": {
@@ -916,14 +943,14 @@
                   "path": "{{ vars.secret_path }}",
                   "missing_ok": true
                 },
-                "version": "1.2.0",
+                "version": "1.2.1",
                 "name": "HashiCorp Vault KV",
                 "operationTitle": "Get Secret Metadata",
                 "step_variables": [],
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "380",
+              "top": "510",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -937,7 +964,7 @@
                 "conditions": [
                   {
                     "option": "Path is free",
-                    "condition": "{{ vars.secret_path and '..' not in vars.secret_path.split('/') and not vars.steps.CheckPathFree.data.exists }}",
+                    "condition": "{{ not vars.steps.CheckPathFree.data.exists }}",
                     "step_iri": "/api/3/workflow_steps/df3bb51c-c3c7-5b55-a004-4551be91c2ba",
                     "step_name": "CreateKey"
                   },
@@ -950,7 +977,7 @@
                 ]
               },
               "status": null,
-              "top": "510",
+              "top": "640",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
@@ -973,14 +1000,14 @@
                   "rpm": "",
                   "provider_ids": "{{ vars.providers }}"
                 },
-                "version": "1.6.2",
+                "version": "1.6.3",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Create Virtual Key",
                 "step_variables": [],
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "640",
+              "top": "770",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1000,14 +1027,14 @@
                   "create_only": true
                 },
                 "ignore_errors": true,
-                "version": "1.2.0",
+                "version": "1.2.1",
                 "name": "HashiCorp Vault KV",
                 "operationTitle": "Write Secret",
                 "step_variables": [],
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "770",
+              "top": "900",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1034,7 +1061,7 @@
                 ]
               },
               "status": null,
-              "top": "900",
+              "top": "1030",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
@@ -1052,14 +1079,14 @@
                   "key_id": "{{ vars.steps.CreateKey.data.id }}",
                   "reason": "Onboarding failed: the secret could not be stored in Vault"
                 },
-                "version": "1.6.2",
+                "version": "1.6.3",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Revoke Virtual Key",
                 "step_variables": [],
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1030",
+              "top": "1160",
               "left": "540",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1077,14 +1104,14 @@
                   "path": "{{ vars.secret_path }}",
                   "custom_metadata": "{{ {\"faig_key_id\": vars.steps.CreateKey.data.id, \"faig_key_name\": vars.steps.CreateKey.data.keyName,\n    \"faig_expires_at\": vars.steps.CreateKey.data.expiresAt | default(\"\"),\n    \"faig_created_at\": vars.steps.CreateKey.data.createdAt | default(\"\")} | tojson }}"
                 },
-                "version": "1.2.0",
+                "version": "1.2.1",
                 "name": "HashiCorp Vault KV",
                 "operationTitle": "Update Secret Metadata",
                 "step_variables": [],
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1030",
+              "top": "1160",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1101,14 +1128,14 @@
                 "params": {
                   "api_key": "{{ vars.steps.CreateKey.data.new_secret }}"
                 },
-                "version": "1.6.2",
+                "version": "1.6.3",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1160",
+              "top": "1290",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1123,10 +1150,10 @@
                 "secret_path": "{{ vars.secret_path }}",
                 "key_id": "",
                 "expires_at": "",
-                "outcome": "{{ 'secret_path_required' if not vars.secret_path else ('secret_path_not_allowed' if '..' in vars.secret_path.split('/') else 'path_in_use') }}"
+                "outcome": "{{ 'secret_path_required' if not vars.secret_path else ('secret_path_not_allowed' if ('..' in vars.secret_path.split('/') or '.' in vars.secret_path.split('/')) else 'path_in_use') }}"
               },
               "status": null,
-              "top": "640",
+              "top": "770",
               "left": "540",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1144,7 +1171,7 @@
                 "outcome": "write_failed"
               },
               "status": null,
-              "top": "1160",
+              "top": "1290",
               "left": "540",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1162,7 +1189,7 @@
                 "outcome": "{{ 'created' if vars.steps.VerifyKey.data.valid | default(false) else 'created_unverified' }}"
               },
               "status": null,
-              "top": "1290",
+              "top": "1420",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1182,13 +1209,33 @@
             },
             {
               "@type": "WorkflowRoute",
-              "name": "ParseRequest -> CheckPathFree",
-              "targetStep": "/api/3/workflow_steps/da566cb1-2a12-586c-9a05-4b954d9eb560",
+              "name": "ParseRequest -> PathAllowed",
+              "targetStep": "/api/3/workflow_steps/4691ecf5-2be7-5ed9-a72f-9b181e3e3d86",
               "sourceStep": "/api/3/workflow_steps/2491990c-bb25-5a4c-9d62-ad7ef7387e7d",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "e4b1bb12-9d77-51d4-89ce-50cf01696a9b"
+              "uuid": "0a16696c-392d-5b78-8d2a-77a555e00bea"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "PathAllowed -> CheckPathFree",
+              "targetStep": "/api/3/workflow_steps/da566cb1-2a12-586c-9a05-4b954d9eb560",
+              "sourceStep": "/api/3/workflow_steps/4691ecf5-2be7-5ed9-a72f-9b181e3e3d86",
+              "label": "Path given and allowed",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "7a1f5dc8-c62b-5fc8-a8b1-803a52275e60"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "PathAllowed -> PathInUse",
+              "targetStep": "/api/3/workflow_steps/a9978877-09fe-5c7a-814d-f49b6c1a030d",
+              "sourceStep": "/api/3/workflow_steps/4691ecf5-2be7-5ed9-a72f-9b181e3e3d86",
+              "label": "Path missing or not allowed",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "cddbd931-7f0c-5a57-860e-f3ba7e335eb3"
             },
             {
               "@type": "WorkflowRoute",
@@ -1311,6 +1358,23 @@
             },
             {
               "@type": "WorkflowGroup",
+              "name": "Note: PathAllowed",
+              "description": "Checked before any Vault call, so the caller gets a result, not a failed run.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "380",
+              "left": "540",
+              "height": "94",
+              "width": "440",
+              "uuid": "cd3c3ca9-31f0-5601-b4ef-445e35c61daf",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
               "name": "Note: StoreSecret",
               "description": "Check-and-set 0 - refused if anything was written there meanwhile.",
               "type": "note",
@@ -1319,7 +1383,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "770",
+              "top": "900",
               "left": "540",
               "height": "94",
               "width": "440",
@@ -1336,7 +1400,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1290",
+              "top": "1420",
               "left": "540",
               "height": "94",
               "width": "440",

@@ -46,7 +46,7 @@ Key lifecycle details:
 
 ## Sample playbooks: renew keys before they expire, and onboard new ones
 
-These need `hashicorp-vault-kv` 1.2.0 or later. Each FortiAIGate key is linked to
+These need `hashicorp-vault-kv` 1.2.1 or later. Each FortiAIGate key is linked to
 the Vault secret that holds it by a custom metadata tag on that secret,
 `faig_key_id=<key uuid>`. Vault cannot search, so the renewal lists a folder and
 reads each secret's metadata; it never reads a secret value.

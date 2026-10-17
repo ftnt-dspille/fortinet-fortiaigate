@@ -4,7 +4,7 @@
 # is stamped with the info.json version and frozen timestamps).
 #
 # Requires alongside this connector on the appliance:
-#   - hashicorp-vault-kv 1.2.0+ in its default config, with a token that can
+#   - hashicorp-vault-kv 1.2.1+ in its default config, with a token that can
 #     list/read/patch metadata and create/patch data under the app folder
 #   - fortinet-fortiaigate in its default config
 
@@ -324,7 +324,7 @@ playbooks:
 
       - name: ParseRequest
         type: set_variable
-        next: CheckPathFree
+        next: PathAllowed
         comment: The API body arrives as a raw JSON string in vars.request.body.
         vars:
           request_body: "{{ vars.request.body | from_json if vars.request.body is string else (vars.request.body | default({}, true)) }}"
@@ -334,6 +334,17 @@ playbooks:
           providers: "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).providers | default('openai', true) }}"
           expires_in_days: "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).expires_in_days | default(7, true) }}"
           fields: "{{ (vars.request.body | from_json if vars.request.body is string else vars.request.body).fields | default({}, true) }}"
+
+      - name: PathAllowed
+        type: decision
+        comment: Checked before any Vault call, so the caller gets a result, not a failed run.
+        conditions:
+          - display: Path given and allowed
+            when: "{{ vars.secret_path and '..' not in vars.secret_path.split('/') and '.' not in vars.secret_path.split('/') }}"
+            next: CheckPathFree
+          - display: Path missing or not allowed
+            default: true
+            next: PathInUse
 
       - name: CheckPathFree
         type: connector
@@ -349,7 +360,7 @@ playbooks:
         type: decision
         conditions:
           - display: Path is free
-            when: "{{ vars.secret_path and '..' not in vars.secret_path.split('/') and not vars.steps.CheckPathFree.data.exists }}"
+            when: "{{ not vars.steps.CheckPathFree.data.exists }}"
             next: CreateKey
           - display: Path in use, missing or not allowed
             default: true
@@ -432,7 +443,7 @@ playbooks:
           secret_path: '{{ vars.secret_path }}'
           key_id: ''
           expires_at: ''
-          outcome: "{{ 'secret_path_required' if not vars.secret_path else ('secret_path_not_allowed' if '..' in vars.secret_path.split('/') else 'path_in_use') }}"
+          outcome: "{{ 'secret_path_required' if not vars.secret_path else ('secret_path_not_allowed' if ('..' in vars.secret_path.split('/') or '.' in vars.secret_path.split('/')) else 'path_in_use') }}"
 
       - name: WriteFailed
         type: set_variable
