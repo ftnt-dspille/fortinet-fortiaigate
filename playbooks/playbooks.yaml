@@ -521,12 +521,37 @@ playbooks:
       - name: HaveKeyId
         type: decision
         conditions:
-          - display: Have key_id and a safe secret_folder
-            when: "{{ (vars.key_id | string | length) > 0 and vars.secret_folder and '..' not in vars.secret_folder.split('/') and '.' not in vars.secret_folder.split('/') }}"
-            next: FindBadSecret
-          - display: Missing key_id or bad folder - refuse
+          - display: Have key_id, request_id and a safe secret_folder
+            when: "{{ (vars.key_id | string | length) > 0 and (vars.request_id | string | length) > 0 and vars.secret_folder and '..' not in vars.secret_folder.split('/') and '.' not in vars.secret_folder.split('/') }}"
+            next: VerifyBlock
+          - display: Missing a required field - refuse
             default: true
             next: BadRequest
+
+      - name: VerifyBlock
+        type: connector
+        next: BlockVerified
+        connector: fortinet-fortiaigate
+        operation: get_traffic_log
+        config: ''
+        ignore_errors: true
+        comment: >-
+          Look the request_id up in the FortiAIGate traffic logs. The record
+          names the virtual key that sent the request and the verdict the
+          gateway returned - so a caller cannot name a key that was not
+          actually blocked.
+        params:
+          request_id: '{{ vars.request_id }}'
+
+      - name: BlockVerified
+        type: decision
+        conditions:
+          - display: Traffic log says this key_id was blocked - proceed
+            when: "{{ (vars.steps.VerifyBlock.data.keyId | default('')) == vars.key_id and ((vars.steps.VerifyBlock.data.verdict | default('') | string | lower) == 'block' or (vars.steps.VerifyBlock.data.action | default('') | string | lower) == 'block') }}"
+            next: FindBadSecret
+          - display: No matching block in the traffic logs - refuse
+            default: true
+            next: VerificationFailed
 
       - name: FindBadSecret
         type: connector
@@ -772,10 +797,24 @@ playbooks:
           peers_rotated: []
           peers_failed: []
 
+      - name: VerificationFailed
+        type: set_variable
+        comment: 'FortiAIGate traffic logs do not confirm a block for this key_id - do nothing.'
+        vars:
+          outcome: verification_failed
+          revoked_key: ''
+          revoked_secret: ''
+          policy: '{{ vars.policy }}'
+          request_id: '{{ vars.request_id }}'
+          observed_key_id: "{{ vars.steps.VerifyBlock.data.keyId | default('') }}"
+          observed_verdict: "{{ vars.steps.VerifyBlock.data.verdict | default('') }}"
+          peers_rotated: []
+          peers_failed: []
+
       - name: BadRequest
         type: set_variable
         vars:
           outcome: bad_request
-          error: key_id is required
+          error: key_id, request_id and a safe secret_folder are required
           peers_rotated: []
           peers_failed: []

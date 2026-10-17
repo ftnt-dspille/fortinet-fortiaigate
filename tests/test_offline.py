@@ -225,6 +225,35 @@ def test_list_audit_logs_paginates(fake, config):
     assert default['total'] == 12
 
 
+def test_get_traffic_log_resolves_key_id_from_alias(fake, config):
+    # the fake logs 'req-blocked-alpha' with keyAlias 'alpha'; alpha is 'k-1' in the key fixtures
+    out = ops.get_traffic_log(config, {'request_id': 'req-blocked-alpha'})
+    assert out['uuid'] == 'req-blocked-alpha'
+    assert out['keyId'] == 'k-1'
+    assert out['keyName'] == 'alpha'
+    assert out['verdict'] == 'block'
+    assert out['action'] == 'DENY'
+
+
+def test_get_traffic_log_verdict_false_normalises_to_allow(fake, config):
+    out = ops.get_traffic_log(config, {'request_id': 'req-ok-alpha'})
+    assert out['verdict'] == 'allow'
+    assert out['action'] == 'ALLOW'
+
+
+def test_get_traffic_log_unknown_alias_returns_empty_key_id(fake, config):
+    out = ops.get_traffic_log(config, {'request_id': 'req-unknown-key'})
+    assert out['keyId'] == ''
+    assert out['keyName'] == 'ghost'
+    assert out['verdict'] == 'block'
+
+
+def test_get_traffic_log_requires_request_id(fake, config):
+    import pytest
+    with pytest.raises(ValueError, match='request_id is required'):
+        ops.get_traffic_log(config, {})
+
+
 def test_audit_log_filter_options(fake, config):
     options = ops.get_audit_log_filter_options(config, {})
     assert options['user'] == ['admin@example.com']

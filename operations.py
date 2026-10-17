@@ -454,6 +454,77 @@ def list_audit_logs(config, params):
 operations['list_audit_logs'] = list_audit_logs
 
 
+def get_traffic_log(config, params):
+    """One traffic-log record by its FortiAIGate request id (``uuid``).
+
+    Used by the revocation playbook to verify a guardrail-block event. The
+    traffic log names the virtual key only by ``keyAlias`` (name) and
+    ``keyPrefix`` (secret preview, not the key id), so this op looks up the
+    key in the matching workspace and returns its id. The playbook can then
+    confirm the key_id the caller named is the one that was blocked.
+
+    ``verdict`` is normalised to lowercase (``block``/``allow``) regardless
+    of whether the gateway returned a boolean or an ``action`` string
+    (``DENY``/``ALLOW``), so a decision step can match on either.
+    """
+    if not params.get('request_id'):
+        raise ValueError('request_id is required')
+    client = _client(config)
+    log = client.traffic_log(params['request_id'])
+    verdict_raw = log.get('verdict')
+    action = str(log.get('action') or '').upper()
+    if isinstance(verdict_raw, bool):
+        verdict = 'block' if verdict_raw else 'allow'
+    else:
+        verdict = str(verdict_raw or '').lower()
+    if not verdict:
+        verdict = 'block' if action == 'DENY' else ('allow' if action == 'ALLOW' else '')
+    # Resolve the key the log names. Prefix (last chars of the secret) is in the
+    # key record's keyPreview; same-named keys are disambiguated by it.
+    alias = str(log.get('keyAlias') or '')
+    prefix = str(log.get('keyPrefix') or '')
+    ws = log.get('workspace') or ''
+    key_id, key_name = '', alias
+    if alias:
+        # list ALL keys the login can see, then filter by alias. Narrow by workspace only
+        # when the key record carries one that matches; records without a workspace field are
+        # kept (older FAIG shapes). ws from the log is a name, which connections.list_virtual_keys
+        # does not resolve.
+        def _ws_matches(k):
+            wk = k.get('workspace')
+            if not wk or not ws:
+                return True
+            if isinstance(wk, dict):
+                return wk.get('name') == ws or wk.get('id') == ws
+            return wk == ws
+        candidates = [k for k in client.list_virtual_keys()
+                      if str(k.get('keyName') or '') == alias and _ws_matches(k)]
+        if len(candidates) > 1 and prefix:
+            narrowed = [k for k in candidates if str(k.get('keyPreview') or '') == prefix]
+            candidates = narrowed or candidates
+        if len(candidates) == 1:
+            key_id = str(candidates[0].get('id') or '')
+            key_name = str(candidates[0].get('keyName') or alias)
+    return {
+        'uuid': log.get('uuid') or log.get('requestId'),
+        'keyId': key_id,
+        'keyName': key_name,
+        'keyPrefix': prefix,
+        'verdict': verdict,
+        'action': action,
+        'timeStamp': log.get('timeStamp'),
+        'workspace': ws,
+        'user': log.get('user') or '',
+        'model': log.get('model') or '',
+        'requestPath': log.get('requestPath') or '',
+        'detector': log.get('detector') or log.get('violation'),
+        'raw': log,
+    }
+
+
+operations['get_traffic_log'] = get_traffic_log
+
+
 def get_audit_log_filter_options(config, params):
     return _client(config).get_audit_log_filter_options()
 

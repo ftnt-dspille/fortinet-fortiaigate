@@ -801,6 +801,16 @@ class FaigClient:
     def get_audit_log_filter_options(self) -> dict:
         return self._call('GET', self._path('audit-logs/filter-options'))
 
+    def traffic_log(self, request_id: str, workspace_id=None) -> dict:
+        """One traffic-log record by its request uuid.
+
+        The record names the virtual key only by ``keyAlias`` and
+        ``keyPrefix`` (no bare key id), so the caller joins it against
+        ``list_virtual_keys``.
+        """
+        rid = _seg(request_id)
+        return self._call('GET', self._path('traffic-logs/' + rid, workspace_id=workspace_id))
+
     # - data plane ---------------------------------------------------------
 
     def chat_completion(self, api_key: str, model: str, messages: list,

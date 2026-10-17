@@ -1,7 +1,7 @@
 {
   "name": "fortinet-fortiaigate",
   "label": "Fortinet FortiAIGate",
-  "version": "1.6.6",
+  "version": "1.6.8",
   "description": "Fortinet FortiAIGate is an inline AI gateway that brokers and guards access to large language model providers. This connector manages the gateway's virtual keys - the data-plane API keys that client applications present to the gateway's OpenAI-compatible endpoint. Operations cover listing and inspecting virtual keys, creating keys (the gateway returns the key secret exactly once), rotating a key in place (invalidating the old secret and issuing a new one), revoking keys, setting key expiry and rate limits, and validating a key against the data-plane models endpoint. Built for the FortiAIGate 8.x management API (session cookie plus per-mutation CSRF, admin console JSON API). Version 1.1 adds governed AI usage: chat completions through the data plane, guardrail testing, policy and provider visibility, workspace budgets and audit logs. Version 1.4 works with a workspace login as well as an organization administrator: the connector reads the login's role and, for a workspace admin or member, manages that workspace's keys, guardrails, policies, detectors and logs.",
   "publisher": "Fortinet",
   "category": "Analytics and SIEM",
@@ -892,6 +892,26 @@
           }
         }
       }
+    },
+    {
+      "operation": "get_traffic_log",
+      "title": "Get Traffic Log",
+      "description": "Fetch one traffic-log record by its request id (uuid). Returns the virtual key that sent the request, the gateway's verdict and the detectors that fired, so the revocation playbook can confirm a guardrail block before acting.",
+      "enabled": true,
+      "annotation": "get_traffic_log",
+      "category": "investigation",
+      "parameters": [
+        {
+          "title": "Request Id",
+          "type": "text",
+          "name": "request_id",
+          "description": "The traffic log's uuid (the FortiAIGate request id).",
+          "required": true,
+          "editable": true,
+          "visible": true
+        }
+      ],
+      "output_schema": {}
     },
     {
       "operation": "get_audit_log_filter_options",

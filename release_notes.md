@@ -1,5 +1,20 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.8
+
+- The revocation playbook now cross-checks the request against FortiAIGate
+  traffic logs before acting. The caller must send a `request_id`, and the
+  playbook calls the new `get_traffic_log` operation on that uuid; it
+  proceeds only if the log's `keyId` matches the caller's `key_id` and its
+  verdict is `block`. Otherwise the run ends on `verification_failed` and
+  does nothing. A caller can no longer trigger revocation on an arbitrary
+  key by typing its id into the request body.
+- New connector operation **Get Traffic Log** returns one record by its
+  request id, with the key id (resolved from the log's `keyAlias` and
+  `keyPrefix`), verdict (normalised to `block`/`allow`), action, model,
+  user and workspace.
+
+## 1.6.6
 ## 1.6.6
 
 More hardening on the revocation playbook:

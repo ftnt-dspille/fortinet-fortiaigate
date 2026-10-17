@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.6.6",
+      "name": "Sample - Fortinet FortiAIGate - 1.6.8",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -35,7 +35,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792262603,
+          "lastModifyDate": 1792263194,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/5d3f346c-4857-565d-98e3-6bef350559b9",
@@ -114,7 +114,7 @@
                   "within_days": "{{ vars.within_days }}",
                   "include_expired": true
                 },
-                "version": "1.6.3",
+                "version": "1.6.6",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "List Expiring Virtual Keys",
                 "step_variables": [],
@@ -433,7 +433,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792262603,
+          "lastModifyDate": 1792263194,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/e02e815a-71cd-54d1-a90c-852dfcdca883",
@@ -486,7 +486,7 @@
                   "expires_in_days": "{{ vars.extend_days }}"
                 },
                 "ignore_errors": true,
-                "version": "1.6.3",
+                "version": "1.6.6",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Renew Virtual Key",
                 "step_variables": [],
@@ -617,7 +617,7 @@
                 "params": {
                   "api_key": "{{ vars.steps.RenewKey.data.new_secret }}"
                 },
-                "version": "1.6.3",
+                "version": "1.6.6",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -851,7 +851,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792262603,
+          "lastModifyDate": 1792263194,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/2553cfca-e72e-509a-b1ca-68f625096293",
@@ -1000,7 +1000,7 @@
                   "rpm": "",
                   "provider_ids": "{{ vars.providers }}"
                 },
-                "version": "1.6.3",
+                "version": "1.6.6",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Create Virtual Key",
                 "step_variables": [],
@@ -1079,7 +1079,7 @@
                   "key_id": "{{ vars.steps.CreateKey.data.id }}",
                   "reason": "Onboarding failed: the secret could not be stored in Vault"
                 },
-                "version": "1.6.3",
+                "version": "1.6.6",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Revoke Virtual Key",
                 "step_variables": [],
@@ -1128,7 +1128,7 @@
                 "params": {
                   "api_key": "{{ vars.steps.CreateKey.data.new_secret }}"
                 },
-                "version": "1.6.3",
+                "version": "1.6.6",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Check API Key",
                 "step_variables": [],
@@ -1430,7 +1430,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792262603,
+          "lastModifyDate": 1792263194,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/0b1f3434-f158-5c91-86a0-fe674538f81e",
@@ -1491,13 +1491,13 @@
               "arguments": {
                 "conditions": [
                   {
-                    "option": "Have key_id and a safe secret_folder",
-                    "condition": "{{ (vars.key_id | string | length) > 0 and vars.secret_folder and '..' not in vars.secret_folder.split('/') and '.' not in vars.secret_folder.split('/') }}",
-                    "step_iri": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
-                    "step_name": "FindBadSecret"
+                    "option": "Have key_id, request_id and a safe secret_folder",
+                    "condition": "{{ (vars.key_id | string | length) > 0 and (vars.request_id | string | length) > 0 and vars.secret_folder and '..' not in vars.secret_folder.split('/') and '.' not in vars.secret_folder.split('/') }}",
+                    "step_iri": "/api/3/workflow_steps/11b385b5-c816-53c8-82c9-074b80c52f51",
+                    "step_name": "VerifyBlock"
                   },
                   {
-                    "option": "Missing key_id or bad folder - refuse",
+                    "option": "Missing a required field - refuse",
                     "default": true,
                     "step_iri": "/api/3/workflow_steps/ab2dbbbd-091f-5aa9-8224-1dc94468dbdc",
                     "step_name": "BadRequest"
@@ -1510,6 +1510,58 @@
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
               "uuid": "3587c3a5-6cbe-52d6-bad8-759aae1e3e2b"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "VerifyBlock",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "get_traffic_log",
+                "config": "",
+                "ignore_errors": true,
+                "params": {
+                  "request_id": "{{ vars.request_id }}"
+                },
+                "version": "1.6.6",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Get Traffic Log",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "510",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "11b385b5-c816-53c8-82c9-074b80c52f51"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "BlockVerified",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Traffic log says this key_id was blocked - proceed",
+                    "condition": "{{ (vars.steps.VerifyBlock.data.keyId | default('')) == vars.key_id and ((vars.steps.VerifyBlock.data.verdict | default('') | string | lower) == 'block' or (vars.steps.VerifyBlock.data.action | default('') | string | lower) == 'block') }}",
+                    "step_iri": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
+                    "step_name": "FindBadSecret"
+                  },
+                  {
+                    "option": "No matching block in the traffic logs - refuse",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/3d7a9a45-b4ed-5893-b002-dc6f4aaf1544",
+                    "step_name": "VerificationFailed"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "640",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "e20acfb6-4956-5004-a3ff-130eedbfddbf"
             },
             {
               "@type": "WorkflowStep",
@@ -1532,7 +1584,7 @@
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "510",
+              "top": "770",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1565,7 +1617,7 @@
                 ]
               },
               "status": null,
-              "top": "640",
+              "top": "900",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
@@ -1579,7 +1631,7 @@
                 "workspace_id": "{{ (vars.steps.FindBadSecret.data.tagged | selectattr('path','equalto', vars.steps.FindBadSecret.data.matches[0].path) | first).custom_metadata.faig_workspace_id | default('', true) }}"
               },
               "status": null,
-              "top": "770",
+              "top": "1030",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1597,14 +1649,14 @@
                 "params": {
                   "key_id": "{{ vars.key_id }}"
                 },
-                "version": "1.6.3",
+                "version": "1.6.6",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Revoke Virtual Key",
                 "step_variables": [],
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "900",
+              "top": "1160",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1631,7 +1683,7 @@
                 ]
               },
               "status": null,
-              "top": "1030",
+              "top": "1290",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
@@ -1657,7 +1709,7 @@
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1160",
+              "top": "1420",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1671,7 +1723,7 @@
                 "revoked_at": "{{ arrow.utcnow().isoformat() }}"
               },
               "status": null,
-              "top": "1290",
+              "top": "1550",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1697,7 +1749,7 @@
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1420",
+              "top": "1680",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1724,7 +1776,7 @@
                 ]
               },
               "status": null,
-              "top": "1550",
+              "top": "1810",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
@@ -1745,7 +1797,7 @@
                 "peers_failed": []
               },
               "status": null,
-              "top": "1160",
+              "top": "1420",
               "left": "880",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1763,14 +1815,14 @@
                 "params": {
                   "key_id": "{{ vars.key_id }}"
                 },
-                "version": "1.6.3",
+                "version": "1.6.6",
                 "name": "Fortinet FortiAIGate",
                 "operationTitle": "Revoke Virtual Key",
                 "step_variables": [],
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "770",
+              "top": "1030",
               "left": "540",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1797,7 +1849,7 @@
                 ]
               },
               "status": null,
-              "top": "900",
+              "top": "1160",
               "left": "540",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
@@ -1824,7 +1876,7 @@
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1680",
+              "top": "1940",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
@@ -1839,7 +1891,7 @@
                 "peers": "{{ (vars.steps.FindPeers.data.tagged | default([]))\n   | rejectattr(\"path\", \"equalto\", vars.steps.FindBadSecret.data.matches[0].path) | list }}"
               },
               "status": null,
-              "top": "1810",
+              "top": "2070",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1872,7 +1924,7 @@
                 ]
               },
               "status": null,
-              "top": "1940",
+              "top": "2200",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
@@ -1899,7 +1951,7 @@
                 }
               },
               "status": null,
-              "top": "2070",
+              "top": "2330",
               "left": "880",
               "stepType": "/api/3/workflow_step_types/74932bdc-b8b6-4d24-88c4-1a4dfbc524f3",
               "group": null,
@@ -1919,7 +1971,7 @@
                 "peers_failed": "{{ (vars.steps.RotatePeers | default([], true))\n   | selectattr(\"outcome\", \"defined\")\n   | rejectattr(\"outcome\", \"in\", [\"renewed\", \"renewed_unverified\"]) | list }}"
               },
               "status": null,
-              "top": "2200",
+              "top": "2460",
               "left": "540",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1939,7 +1991,7 @@
                 "peers_failed": []
               },
               "status": null,
-              "top": "2070",
+              "top": "2330",
               "left": "540",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1961,7 +2013,7 @@
                 "peers_failed": []
               },
               "status": null,
-              "top": "2070",
+              "top": "2330",
               "left": "200",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1982,7 +2034,7 @@
                 "peers_failed": []
               },
               "status": null,
-              "top": "770",
+              "top": "1030",
               "left": "880",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -1990,11 +2042,33 @@
             },
             {
               "@type": "WorkflowStep",
+              "name": "VerificationFailed",
+              "description": null,
+              "arguments": {
+                "outcome": "verification_failed",
+                "revoked_key": "",
+                "revoked_secret": "",
+                "policy": "{{ vars.policy }}",
+                "request_id": "{{ vars.request_id }}",
+                "observed_key_id": "{{ vars.steps.VerifyBlock.data.keyId | default('') }}",
+                "observed_verdict": "{{ vars.steps.VerifyBlock.data.verdict | default('') }}",
+                "peers_rotated": [],
+                "peers_failed": []
+              },
+              "status": null,
+              "top": "770",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "3d7a9a45-b4ed-5893-b002-dc6f4aaf1544"
+            },
+            {
+              "@type": "WorkflowStep",
               "name": "BadRequest",
               "description": null,
               "arguments": {
                 "outcome": "bad_request",
-                "error": "key_id is required",
+                "error": "key_id, request_id and a safe secret_folder are required",
                 "peers_rotated": [],
                 "peers_failed": []
               },
@@ -2029,23 +2103,53 @@
             },
             {
               "@type": "WorkflowRoute",
-              "name": "HaveKeyId -> FindBadSecret",
-              "targetStep": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
+              "name": "HaveKeyId -> VerifyBlock",
+              "targetStep": "/api/3/workflow_steps/11b385b5-c816-53c8-82c9-074b80c52f51",
               "sourceStep": "/api/3/workflow_steps/3587c3a5-6cbe-52d6-bad8-759aae1e3e2b",
-              "label": "Have key_id and a safe secret_folder",
+              "label": "Have key_id, request_id and a safe secret_folder",
               "isExecuted": false,
               "group": null,
-              "uuid": "646b2c90-9f84-50c0-9e12-f64321037d19"
+              "uuid": "b14635f4-e634-5e24-9a18-1cda880857cc"
             },
             {
               "@type": "WorkflowRoute",
               "name": "HaveKeyId -> BadRequest",
               "targetStep": "/api/3/workflow_steps/ab2dbbbd-091f-5aa9-8224-1dc94468dbdc",
               "sourceStep": "/api/3/workflow_steps/3587c3a5-6cbe-52d6-bad8-759aae1e3e2b",
-              "label": "Missing key_id or bad folder - refuse",
+              "label": "Missing a required field - refuse",
               "isExecuted": false,
               "group": null,
-              "uuid": "3d4fa057-c315-5ff3-be17-b2ce0ee6487e"
+              "uuid": "c80e3111-90a6-5b47-be2a-a0ca3a57abf9"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "VerifyBlock -> BlockVerified",
+              "targetStep": "/api/3/workflow_steps/e20acfb6-4956-5004-a3ff-130eedbfddbf",
+              "sourceStep": "/api/3/workflow_steps/11b385b5-c816-53c8-82c9-074b80c52f51",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "96d5668f-df45-5e78-8152-b1c7ab937ffc"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "BlockVerified -> FindBadSecret",
+              "targetStep": "/api/3/workflow_steps/a4f9ab89-9a1d-5ee7-9cbe-07ddcd44ac31",
+              "sourceStep": "/api/3/workflow_steps/e20acfb6-4956-5004-a3ff-130eedbfddbf",
+              "label": "Traffic log says this key_id was blocked - proceed",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "06516b89-3f63-56dd-94f8-36bfd98584ef"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "BlockVerified -> VerificationFailed",
+              "targetStep": "/api/3/workflow_steps/3d7a9a45-b4ed-5893-b002-dc6f4aaf1544",
+              "sourceStep": "/api/3/workflow_steps/e20acfb6-4956-5004-a3ff-130eedbfddbf",
+              "label": "No matching block in the traffic logs - refuse",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "a9840507-d4b8-5009-99eb-934bf65d84e5"
             },
             {
               "@type": "WorkflowRoute",
@@ -2288,6 +2392,23 @@
             },
             {
               "@type": "WorkflowGroup",
+              "name": "Note: VerifyBlock",
+              "description": "Look the request_id up in the FortiAIGate traffic logs. The record names the virtual key that sent the request and the verdict the gateway returned - so a caller cannot name a key that was not actually blocked.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "510",
+              "left": "880",
+              "height": "138",
+              "width": "440",
+              "uuid": "57082f71-75d9-5553-883c-84fc935f507b",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
               "name": "Note: TrustedWorkspace",
               "description": "Pull faig_workspace_id from the bad secret's metadata (set by onboarding), not the request body - a caller must not be able to point peer rotation at a different workspace.",
               "type": "note",
@@ -2296,7 +2417,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "770",
+              "top": "1030",
               "left": "1220",
               "height": "116",
               "width": "440",
@@ -2313,7 +2434,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1160",
+              "top": "1420",
               "left": "1220",
               "height": "94",
               "width": "440",
@@ -2330,7 +2451,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1550",
+              "top": "1810",
               "left": "540",
               "height": "94",
               "width": "440",
@@ -2347,7 +2468,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1274",
+              "top": "1534",
               "left": "1220",
               "height": "94",
               "width": "440",
@@ -2364,7 +2485,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "906",
+              "top": "1166",
               "left": "880",
               "height": "116",
               "width": "440",
@@ -2381,7 +2502,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1680",
+              "top": "1940",
               "left": "540",
               "height": "94",
               "width": "440",
@@ -2398,7 +2519,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1810",
+              "top": "2070",
               "left": "540",
               "height": "72",
               "width": "440",
@@ -2415,11 +2536,28 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "2070",
+              "top": "2330",
               "left": "1220",
               "height": "94",
               "width": "440",
               "uuid": "68608e60-fbc7-54a1-8015-ce6be2f5a8c0",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: VerificationFailed",
+              "description": "FortiAIGate traffic logs do not confirm a block for this key_id - do nothing.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "770",
+              "left": "880",
+              "height": "94",
+              "width": "440",
+              "uuid": "e080eefb-04d4-592b-ba9a-11718aaea4be",
               "recordTags": []
             }
           ],

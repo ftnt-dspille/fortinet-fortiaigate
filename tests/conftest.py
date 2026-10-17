@@ -147,6 +147,27 @@ class FakeState:
              'type': 'admin', 'username': 'admin@example.com', 'workspace': None}
             for i in range(12)
         ]
+        # traffic log fixtures: alpha's uuid resolves to key id a-1, verdict True (block)
+        self.traffic_logs = {
+            'req-blocked-alpha': {
+                'uuid': 'req-blocked-alpha', 'verdict': True, 'action': 'DENY',
+                'keyAlias': 'alpha', 'keyPrefix': 'faig_...1',
+                'workspace': 'Default', 'user': 'alice', 'model': 'openai-gpt',
+                'requestPath': '/ai/openai/v1/chat/completions',
+                'timeStamp': 1792000000000,
+                'violation': {'output': [{'detectorName': 'pii', 'details': 'ssn'}]},
+            },
+            'req-ok-alpha': {
+                'uuid': 'req-ok-alpha', 'verdict': False, 'action': 'ALLOW',
+                'keyAlias': 'alpha', 'keyPrefix': 'faig_...1',
+                'workspace': 'Default', 'user': 'alice', 'timeStamp': 1792000001000,
+            },
+            'req-unknown-key': {
+                'uuid': 'req-unknown-key', 'verdict': True, 'action': 'DENY',
+                'keyAlias': 'ghost', 'keyPrefix': 'faig_...9',
+                'workspace': 'Default', 'user': 'alice', 'timeStamp': 1792000002000,
+            },
+        }
         self.last_guardrail_test = None
         self.last_put_body = None
         self.last_revoke_body = None
@@ -433,6 +454,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(401, {'error': 'no session'})
                 return
             self._send(200, {'spend': 1.5, 'budget': 10, 'budgetCycle': 'monthly'})
+            return
+        if self.path.startswith('/api/v1/admin/traffic-logs/'):
+            if not self._sessioned():
+                self._send(401, {'error': 'no session'})
+                return
+            uid = self.path.split('/')[-1].split('?')[0]
+            row = (getattr(STATE, 'traffic_logs', {}) or {}).get(uid)
+            if not row:
+                self._send(404, {'error': 'not found'})
+                return
+            self._send(200, row)
             return
         if self.path.startswith('/api/v1/admin/audit-logs'):
             if not self._sessioned():
