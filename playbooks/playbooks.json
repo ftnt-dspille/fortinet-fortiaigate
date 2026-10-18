@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.6.11",
+      "name": "Sample - Fortinet FortiAIGate - 1.6.12",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -35,7 +35,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792334157,
+          "lastModifyDate": 1792334611,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/5d3f346c-4857-565d-98e3-6bef350559b9",
@@ -433,7 +433,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792334157,
+          "lastModifyDate": 1792334611,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/e02e815a-71cd-54d1-a90c-852dfcdca883",
@@ -851,7 +851,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792334157,
+          "lastModifyDate": 1792334611,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/2553cfca-e72e-509a-b1ca-68f625096293",
@@ -1430,7 +1430,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792334157,
+          "lastModifyDate": 1792334611,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/0b1f3434-f158-5c91-86a0-fe674538f81e",
@@ -2048,10 +2048,10 @@
                     "step_name": "RotatePeers"
                   },
                   {
-                    "option": "No peers - done",
+                    "option": "No peers - stamp completion, then done",
                     "default": true,
-                    "step_iri": "/api/3/workflow_steps/f86edd35-69f2-5e78-89ee-e886e8f8af99",
-                    "step_name": "NoPeers"
+                    "step_iri": "/api/3/workflow_steps/3d284ad1-4fe5-52fb-84c8-3c6f547c2b8e",
+                    "step_name": "StampCompleteNoPeers"
                   }
                 ]
               },
@@ -2061,6 +2061,32 @@
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
               "uuid": "3b750b80-5e0d-51e7-8f36-06f4a67b163c"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "StampCompleteNoPeers",
+              "description": null,
+              "arguments": {
+                "connector": "hashicorp-vault-kv",
+                "operation": "patch_metadata",
+                "config": "",
+                "ignore_errors": true,
+                "params": {
+                  "path": "{{ vars.steps.FindBadSecret.data.matches[0].path }}",
+                  "custom_metadata": "{{ {\"faig_remediation_complete\": vars.request_id} | tojson }}"
+                },
+                "version": "1.2.1",
+                "name": "HashiCorp Vault KV",
+                "operationTitle": "Update Secret Metadata",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "2720",
+              "left": "1560",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "3d284ad1-4fe5-52fb-84c8-3c6f547c2b8e"
             },
             {
               "@type": "WorkflowStep",
@@ -2084,7 +2110,7 @@
               },
               "status": null,
               "top": "2720",
-              "left": "1560",
+              "left": "1220",
               "stepType": "/api/3/workflow_step_types/74932bdc-b8b6-4d24-88c4-1a4dfbc524f3",
               "group": null,
               "uuid": "5c67dd16-b5c8-560b-bc00-2ec5c2873691"
@@ -2123,7 +2149,7 @@
                 "peers_failed": []
               },
               "status": null,
-              "top": "2720",
+              "top": "2850",
               "left": "880",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
@@ -2146,7 +2172,7 @@
               },
               "status": null,
               "top": "2720",
-              "left": "1220",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
               "uuid": "7f3c6eb4-225b-5ac1-b42f-62d0156e773e"
@@ -2606,13 +2632,23 @@
             },
             {
               "@type": "WorkflowRoute",
-              "name": "PeerDecision -> NoPeers",
-              "targetStep": "/api/3/workflow_steps/f86edd35-69f2-5e78-89ee-e886e8f8af99",
+              "name": "PeerDecision -> StampCompleteNoPeers",
+              "targetStep": "/api/3/workflow_steps/3d284ad1-4fe5-52fb-84c8-3c6f547c2b8e",
               "sourceStep": "/api/3/workflow_steps/3b750b80-5e0d-51e7-8f36-06f4a67b163c",
-              "label": "No peers - done",
+              "label": "No peers - stamp completion, then done",
               "isExecuted": false,
               "group": null,
-              "uuid": "4737f8ed-028b-5f34-928b-7c573b48a666"
+              "uuid": "f093c78f-93e1-5634-99da-1e93c364cc99"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "StampCompleteNoPeers -> NoPeers",
+              "targetStep": "/api/3/workflow_steps/f86edd35-69f2-5e78-89ee-e886e8f8af99",
+              "sourceStep": "/api/3/workflow_steps/3d284ad1-4fe5-52fb-84c8-3c6f547c2b8e",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "b4fcaddd-f9c3-5695-8046-7c0f727f3f4b"
             },
             {
               "@type": "WorkflowRoute",
@@ -2815,6 +2851,23 @@
             },
             {
               "@type": "WorkflowGroup",
+              "name": "Note: StampCompleteNoPeers",
+              "description": "Same completion marker as the peer path, so a replay with no peers also dedupes.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "2720",
+              "left": "1900",
+              "height": "94",
+              "width": "440",
+              "uuid": "6c0e87e0-14c2-5d4d-9249-2b0b811493a6",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
               "name": "Note: RotatePeers",
               "description": "One child run per peer. apply_async=false so the summary step sees the children's set_variable outputs.",
               "type": "note",
@@ -2823,7 +2876,7 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "2720",
+              "top": "2834",
               "left": "1900",
               "height": "94",
               "width": "440",

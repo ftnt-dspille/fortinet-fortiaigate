@@ -1,5 +1,24 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.12
+
+Fixes the state-drift risk in 1.6.11's idempotency:
+
+- The replay gate now trips on `faig_remediation_complete`, a NEW metadata
+  marker written only at the end of the Revoked / NoPeers success paths.
+  `faig_revoked_request` from 1.6.4 is still stamped at revoke time for
+  audit, but the dedup decision no longer uses it: a crash between
+  `RevokeKey` and `RotatePeers` left the key dead and peers un-rotated,
+  while the pre-emptive stamp made the next call refuse to finish
+  remediation. The next call now resumes.
+- The `already-revoked` branch no longer short-circuits to a terminal.
+  When the gateway shows the key already revoked (manual revoke, or an
+  earlier crashed run), the playbook SKIPS `RevokeKey` only and continues
+  to `ClearSecret`, `StampRevoked`, `FindPeers` and `RotatePeers`, so
+  remediation finishes. The orphan branch (no Vault secret for the key)
+  keeps the `already_revoked` terminal; there is nothing to remediate.
+
+## 1.6.11
 ## 1.6.11
 
 Idempotency and already-revoked short-circuit on the revocation playbook:

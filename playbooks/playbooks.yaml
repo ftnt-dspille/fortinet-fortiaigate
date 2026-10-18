@@ -781,9 +781,21 @@ playbooks:
           - display: Peers to rotate
             when: "{{ (vars.peers | length) > 0 }}"
             next: RotatePeers
-          - display: No peers - done
+          - display: No peers - stamp completion, then done
             default: true
-            next: NoPeers
+            next: StampCompleteNoPeers
+
+      - name: StampCompleteNoPeers
+        type: connector
+        next: NoPeers
+        connector: hashicorp-vault-kv
+        operation: patch_metadata
+        config: ''
+        ignore_errors: true
+        comment: Same completion marker as the peer path, so a replay with no peers also dedupes.
+        params:
+          path: '{{ vars.steps.FindBadSecret.data.matches[0].path }}'
+          custom_metadata: '{{ {"faig_remediation_complete": vars.request_id} | tojson }}'
 
       - name: RotatePeers
         type: workflow_reference
