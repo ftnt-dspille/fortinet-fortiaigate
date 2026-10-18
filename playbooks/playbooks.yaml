@@ -575,22 +575,57 @@ playbooks:
           - display: Exactly one tagged secret - resolve its workspace and revoke
             when: "{{ (vars.steps.FindBadSecret.data.matches | length) == 1 }}"
             next: TrustedWorkspace
-          - display: No tagged secret - revoke the key only
+          - display: No tagged secret - check key status then revoke the key only
             when: "{{ (vars.steps.FindBadSecret.data.matches | length) == 0 and (vars.steps.FindBadSecret.data.conflicts | length) == 0 }}"
-            next: RevokeOrphan
+            next: CheckKeyStatusOrphan
           - display: Conflict (same key tagged on 2+ secrets) - flag for a person
             default: true
             next: Conflict
 
       - name: TrustedWorkspace
         type: set_variable
-        next: RevokeKey
+        next: AlreadyProcessed
         comment: >-
-          Pull faig_workspace_id from the bad secret's metadata (set by onboarding),
-          not the request body - a caller must not be able to point peer rotation
-          at a different workspace.
+          Pull faig_workspace_id and the prior faig_revoked_request from the
+          bad secret's metadata (set by onboarding and the previous run). The
+          workspace must come from Vault, not the caller's body; the prior
+          request id lets us refuse a replay of the same fresh request.
         vars:
           workspace_id: "{{ (vars.steps.FindBadSecret.data.tagged | selectattr('path','equalto', vars.steps.FindBadSecret.data.matches[0].path) | first).custom_metadata.faig_workspace_id | default('', true) }}"
+          prior_request_id: "{{ (vars.steps.FindBadSecret.data.tagged | selectattr('path','equalto', vars.steps.FindBadSecret.data.matches[0].path) | first).custom_metadata.faig_revoked_request | default('', true) }}"
+
+      - name: AlreadyProcessed
+        type: decision
+        comment: >-
+          If this request_id is already stamped on the secret, a prior run
+          already revoked the key and rotated its peers. Refuse the replay.
+        conditions:
+          - display: Already revoked for this request_id - refuse replay
+            when: "{{ (vars.prior_request_id | string | length) > 0 and vars.prior_request_id == vars.request_id }}"
+            next: AlreadyProcessedTerminal
+          - display: New request_id - check whether the key is already revoked
+            default: true
+            next: CheckKeyStatus
+
+      - name: CheckKeyStatus
+        type: connector
+        next: KeyStatusOK
+        connector: fortinet-fortiaigate
+        operation: get_virtual_key
+        config: ''
+        ignore_errors: true
+        params:
+          key_id: '{{ vars.key_id }}'
+
+      - name: KeyStatusOK
+        type: decision
+        conditions:
+          - display: Key is already revoked - do nothing more
+            when: "{{ (vars.steps.CheckKeyStatus.data.status | default('') | string | lower) == 'revoked' }}"
+            next: AlreadyRevokedTerminal
+          - display: Key is active - revoke it
+            default: true
+            next: RevokeKey
 
       - name: RevokeKey
         type: connector
@@ -668,6 +703,26 @@ playbooks:
           error: 'revoke refused by the gateway - see the run step for details' 
           peers_rotated: []
           peers_failed: []
+
+      - name: CheckKeyStatusOrphan
+        type: connector
+        next: KeyStatusOrphanOK
+        connector: fortinet-fortiaigate
+        operation: get_virtual_key
+        config: ''
+        ignore_errors: true
+        params:
+          key_id: '{{ vars.key_id }}'
+
+      - name: KeyStatusOrphanOK
+        type: decision
+        conditions:
+          - display: Orphan key is already revoked
+            when: "{{ (vars.steps.CheckKeyStatusOrphan.data.status | default('') | string | lower) == 'revoked' }}"
+            next: AlreadyRevokedTerminal
+          - display: Orphan key is active - revoke it
+            default: true
+            next: RevokeOrphan
 
       - name: RevokeOrphan
         type: connector
@@ -812,6 +867,31 @@ playbooks:
           request_id: '{{ vars.request_id }}'
           observed_key_id: "{{ vars.steps.VerifyBlock.data.keyId | default('') }}"
           observed_verdict: "{{ vars.steps.VerifyBlock.data.verdict | default('') }}"
+          peers_rotated: []
+          peers_failed: []
+
+      - name: AlreadyProcessedTerminal
+        type: set_variable
+        comment: Replay of the same request_id - the first run already handled it.
+        vars:
+          outcome: already_processed
+          revoked_key: '{{ vars.key_id }}'
+          revoked_secret: '{{ vars.steps.FindBadSecret.data.matches[0].path }}'
+          policy: '{{ vars.policy }}'
+          request_id: '{{ vars.request_id }}'
+          prior_request_id: '{{ vars.prior_request_id }}'
+          peers_rotated: []
+          peers_failed: []
+
+      - name: AlreadyRevokedTerminal
+        type: set_variable
+        comment: Key was already revoked - do not re-run peer rotation.
+        vars:
+          outcome: already_revoked
+          revoked_key: '{{ vars.key_id }}'
+          revoked_secret: "{{ vars.steps.FindBadSecret.data.matches[0].path if (vars.steps.FindBadSecret.data.matches | length) == 1 else '' }}"
+          policy: '{{ vars.policy }}'
+          request_id: '{{ vars.request_id }}'
           peers_rotated: []
           peers_failed: []
 

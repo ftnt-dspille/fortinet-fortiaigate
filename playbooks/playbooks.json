@@ -8,7 +8,7 @@
   "data": [
     {
       "@type": "WorkflowCollection",
-      "name": "Sample - Fortinet FortiAIGate - 1.6.10",
+      "name": "Sample - Fortinet FortiAIGate - 1.6.11",
       "description": "Sample playbooks for the \"Fortinet FortiAIGate\" connector. If you are planning to use the sample playbooks in your environment, ensure that you clone those playbooks and move them to a different collection, since the sample playbook collection gets deleted during connector upgrade and delete.",
       "visible": true,
       "image": null,
@@ -35,7 +35,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792266035,
+          "lastModifyDate": 1792334157,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/5d3f346c-4857-565d-98e3-6bef350559b9",
@@ -433,7 +433,7 @@
             "extend_days"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792266035,
+          "lastModifyDate": 1792334157,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/e02e815a-71cd-54d1-a90c-852dfcdca883",
@@ -851,7 +851,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792266035,
+          "lastModifyDate": 1792334157,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/2553cfca-e72e-509a-b1ca-68f625096293",
@@ -1430,7 +1430,7 @@
             "api_body"
           ],
           "synchronous": false,
-          "lastModifyDate": 1792266035,
+          "lastModifyDate": 1792334157,
           "collection": "/api/3/workflow_collections/fef97bfb-4dd3-5260-919d-7119a9d18e0a",
           "versions": [],
           "triggerStep": "/api/3/workflow_steps/0b1f3434-f158-5c91-86a0-fe674538f81e",
@@ -1603,10 +1603,10 @@
                     "step_name": "TrustedWorkspace"
                   },
                   {
-                    "option": "No tagged secret - revoke the key only",
+                    "option": "No tagged secret - check key status then revoke the key only",
                     "condition": "{{ (vars.steps.FindBadSecret.data.matches | length) == 0 and (vars.steps.FindBadSecret.data.conflicts | length) == 0 }}",
-                    "step_iri": "/api/3/workflow_steps/19f56f97-a944-5f16-a5b2-998c890e425a",
-                    "step_name": "RevokeOrphan"
+                    "step_iri": "/api/3/workflow_steps/69d2d3e0-4bc6-5020-98b7-93e062161970",
+                    "step_name": "CheckKeyStatusOrphan"
                   },
                   {
                     "option": "Conflict (same key tagged on 2+ secrets) - flag for a person",
@@ -1628,7 +1628,8 @@
               "name": "TrustedWorkspace",
               "description": null,
               "arguments": {
-                "workspace_id": "{{ (vars.steps.FindBadSecret.data.tagged | selectattr('path','equalto', vars.steps.FindBadSecret.data.matches[0].path) | first).custom_metadata.faig_workspace_id | default('', true) }}"
+                "workspace_id": "{{ (vars.steps.FindBadSecret.data.tagged | selectattr('path','equalto', vars.steps.FindBadSecret.data.matches[0].path) | first).custom_metadata.faig_workspace_id | default('', true) }}",
+                "prior_request_id": "{{ (vars.steps.FindBadSecret.data.tagged | selectattr('path','equalto', vars.steps.FindBadSecret.data.matches[0].path) | first).custom_metadata.faig_revoked_request | default('', true) }}"
               },
               "status": null,
               "top": "1030",
@@ -1636,6 +1637,85 @@
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
               "uuid": "c7cc4b5b-1b2b-5be6-bcc2-4a76f1977a56"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "AlreadyProcessed",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Already revoked for this request_id - refuse replay",
+                    "condition": "{{ (vars.prior_request_id | string | length) > 0 and vars.prior_request_id == vars.request_id }}",
+                    "step_iri": "/api/3/workflow_steps/c50f4f7b-dd24-58a6-a1fe-beb8c79f5022",
+                    "step_name": "AlreadyProcessedTerminal"
+                  },
+                  {
+                    "option": "New request_id - check whether the key is already revoked",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/7f50712b-8fe5-5f1c-9b49-ea58449e1da1",
+                    "step_name": "CheckKeyStatus"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "1160",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "ca60b5e0-9e5a-5ad4-abdf-ab6ff50b9793"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "CheckKeyStatus",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "get_virtual_key",
+                "config": "",
+                "ignore_errors": true,
+                "params": {
+                  "key_id": "{{ vars.key_id }}"
+                },
+                "version": "1.6.6",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Get Virtual Key",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "1290",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "7f50712b-8fe5-5f1c-9b49-ea58449e1da1"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "KeyStatusOK",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Key is already revoked - do nothing more",
+                    "condition": "{{ (vars.steps.CheckKeyStatus.data.status | default('') | string | lower) == 'revoked' }}",
+                    "step_iri": "/api/3/workflow_steps/7adb0412-fef1-505a-85eb-f2bcdde76a3b",
+                    "step_name": "AlreadyRevokedTerminal"
+                  },
+                  {
+                    "option": "Key is active - revoke it",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/6c6e97d9-4c98-509d-8137-ff46924df7b5",
+                    "step_name": "RevokeKey"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "1420",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "9442da9e-4ea6-5025-8127-47003646b330"
             },
             {
               "@type": "WorkflowStep",
@@ -1656,8 +1736,8 @@
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1160",
-              "left": "200",
+              "top": "1550",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
               "uuid": "6c6e97d9-4c98-509d-8137-ff46924df7b5"
@@ -1683,8 +1763,8 @@
                 ]
               },
               "status": null,
-              "top": "1290",
-              "left": "200",
+              "top": "1680",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
               "uuid": "f601aaca-7022-5318-81f5-99eb541963c2"
@@ -1709,8 +1789,8 @@
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1420",
-              "left": "200",
+              "top": "1810",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
               "uuid": "08066222-a0dc-5823-abaa-ab163731f2dd"
@@ -1723,8 +1803,8 @@
                 "revoked_at": "{{ arrow.utcnow().isoformat() }}"
               },
               "status": null,
-              "top": "1550",
-              "left": "200",
+              "top": "1940",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
               "uuid": "c820f230-6c75-5fcf-92ac-0f2087237f28"
@@ -1749,8 +1829,8 @@
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1680",
-              "left": "200",
+              "top": "2070",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
               "uuid": "52cded70-ec07-57be-8789-fed718484d5e"
@@ -1776,8 +1856,8 @@
                 ]
               },
               "status": null,
-              "top": "1810",
-              "left": "200",
+              "top": "2200",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
               "uuid": "0694eca8-b502-5620-b490-9a5d645d720b"
@@ -1797,11 +1877,63 @@
                 "peers_failed": []
               },
               "status": null,
-              "top": "1420",
-              "left": "880",
+              "top": "1810",
+              "left": "1220",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
               "uuid": "8cade777-a786-575b-bb9d-403f216d08bb"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "CheckKeyStatusOrphan",
+              "description": null,
+              "arguments": {
+                "connector": "fortinet-fortiaigate",
+                "operation": "get_virtual_key",
+                "config": "",
+                "ignore_errors": true,
+                "params": {
+                  "key_id": "{{ vars.key_id }}"
+                },
+                "version": "1.6.6",
+                "name": "Fortinet FortiAIGate",
+                "operationTitle": "Get Virtual Key",
+                "step_variables": [],
+                "pickFromTenant": false
+              },
+              "status": null,
+              "top": "1030",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
+              "group": null,
+              "uuid": "69d2d3e0-4bc6-5020-98b7-93e062161970"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "KeyStatusOrphanOK",
+              "description": null,
+              "arguments": {
+                "conditions": [
+                  {
+                    "option": "Orphan key is already revoked",
+                    "condition": "{{ (vars.steps.CheckKeyStatusOrphan.data.status | default('') | string | lower) == 'revoked' }}",
+                    "step_iri": "/api/3/workflow_steps/7adb0412-fef1-505a-85eb-f2bcdde76a3b",
+                    "step_name": "AlreadyRevokedTerminal"
+                  },
+                  {
+                    "option": "Orphan key is active - revoke it",
+                    "default": true,
+                    "step_iri": "/api/3/workflow_steps/19f56f97-a944-5f16-a5b2-998c890e425a",
+                    "step_name": "RevokeOrphan"
+                  }
+                ]
+              },
+              "status": null,
+              "top": "1160",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
+              "group": null,
+              "uuid": "69194747-4b49-5486-8dfb-ed02fbe1e38f"
             },
             {
               "@type": "WorkflowStep",
@@ -1822,8 +1954,8 @@
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1030",
-              "left": "540",
+              "top": "1290",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
               "uuid": "19f56f97-a944-5f16-a5b2-998c890e425a"
@@ -1849,8 +1981,8 @@
                 ]
               },
               "status": null,
-              "top": "1160",
-              "left": "540",
+              "top": "1420",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
               "uuid": "41381a13-0e6b-55a8-9d96-cc18a7a0dc5d"
@@ -1876,8 +2008,8 @@
                 "pickFromTenant": false
               },
               "status": null,
-              "top": "1940",
-              "left": "200",
+              "top": "2330",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/0bfed618-0316-11e7-93ae-92361f002671",
               "group": null,
               "uuid": "a0caf9f4-dc3a-5f60-9397-9f02884c7e2d"
@@ -1891,8 +2023,8 @@
                 "peers": "{{ (vars.steps.FindPeers.data.tagged | default([]))\n   | rejectattr(\"path\", \"equalto\", vars.steps.FindBadSecret.data.matches[0].path) | list }}"
               },
               "status": null,
-              "top": "2070",
-              "left": "200",
+              "top": "2460",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
               "uuid": "bb32fd05-dfd6-5bac-b0a1-15d8f24bb735"
@@ -1924,8 +2056,8 @@
                 ]
               },
               "status": null,
-              "top": "2200",
-              "left": "200",
+              "top": "2590",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/12254cf5-5db7-4b1a-8cb1-3af081924b28",
               "group": null,
               "uuid": "3b750b80-5e0d-51e7-8f36-06f4a67b163c"
@@ -1951,8 +2083,8 @@
                 }
               },
               "status": null,
-              "top": "2330",
-              "left": "880",
+              "top": "2720",
+              "left": "1560",
               "stepType": "/api/3/workflow_step_types/74932bdc-b8b6-4d24-88c4-1a4dfbc524f3",
               "group": null,
               "uuid": "5c67dd16-b5c8-560b-bc00-2ec5c2873691"
@@ -1971,8 +2103,8 @@
                 "peers_failed": "{{ (vars.steps.RotatePeers | default([], true))\n   | selectattr(\"outcome\", \"defined\")\n   | rejectattr(\"outcome\", \"in\", [\"renewed\", \"renewed_unverified\"]) | list }}"
               },
               "status": null,
-              "top": "2460",
-              "left": "540",
+              "top": "2850",
+              "left": "1220",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
               "uuid": "43aee244-a52f-5547-9c20-0b993855d1ce"
@@ -1991,8 +2123,8 @@
                 "peers_failed": []
               },
               "status": null,
-              "top": "2330",
-              "left": "540",
+              "top": "2720",
+              "left": "880",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
               "uuid": "f86edd35-69f2-5e78-89ee-e886e8f8af99"
@@ -2013,8 +2145,8 @@
                 "peers_failed": []
               },
               "status": null,
-              "top": "2330",
-              "left": "200",
+              "top": "2720",
+              "left": "1220",
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
               "uuid": "7f3c6eb4-225b-5ac1-b42f-62d0156e773e"
@@ -2061,6 +2193,47 @@
               "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
               "group": null,
               "uuid": "3d7a9a45-b4ed-5893-b002-dc6f4aaf1544"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "AlreadyProcessedTerminal",
+              "description": null,
+              "arguments": {
+                "outcome": "already_processed",
+                "revoked_key": "{{ vars.key_id }}",
+                "revoked_secret": "{{ vars.steps.FindBadSecret.data.matches[0].path }}",
+                "policy": "{{ vars.policy }}",
+                "request_id": "{{ vars.request_id }}",
+                "prior_request_id": "{{ vars.prior_request_id }}",
+                "peers_rotated": [],
+                "peers_failed": []
+              },
+              "status": null,
+              "top": "1290",
+              "left": "200",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "c50f4f7b-dd24-58a6-a1fe-beb8c79f5022"
+            },
+            {
+              "@type": "WorkflowStep",
+              "name": "AlreadyRevokedTerminal",
+              "description": null,
+              "arguments": {
+                "outcome": "already_revoked",
+                "revoked_key": "{{ vars.key_id }}",
+                "revoked_secret": "{{ vars.steps.FindBadSecret.data.matches[0].path if (vars.steps.FindBadSecret.data.matches | length) == 1 else '' }}",
+                "policy": "{{ vars.policy }}",
+                "request_id": "{{ vars.request_id }}",
+                "peers_rotated": [],
+                "peers_failed": []
+              },
+              "status": null,
+              "top": "1550",
+              "left": "540",
+              "stepType": "/api/3/workflow_step_types/04d0cf46-b6a8-42c4-8683-60a7eaa69e8f",
+              "group": null,
+              "uuid": "7adb0412-fef1-505a-85eb-f2bcdde76a3b"
             },
             {
               "@type": "WorkflowStep",
@@ -2173,13 +2346,13 @@
             },
             {
               "@type": "WorkflowRoute",
-              "name": "BadSecretMatched -> RevokeOrphan",
-              "targetStep": "/api/3/workflow_steps/19f56f97-a944-5f16-a5b2-998c890e425a",
+              "name": "BadSecretMatched -> CheckKeyStatusOrphan",
+              "targetStep": "/api/3/workflow_steps/69d2d3e0-4bc6-5020-98b7-93e062161970",
               "sourceStep": "/api/3/workflow_steps/e6bcebb4-bacb-5e34-bc88-7fdaa1e280e5",
-              "label": "No tagged secret - revoke the key only",
+              "label": "No tagged secret - check key status then revoke the key only",
               "isExecuted": false,
               "group": null,
-              "uuid": "d2ef6c85-2698-5584-8cce-26dde07c4458"
+              "uuid": "13ae3e7a-f2a5-5dc6-9ddd-8e242b244b07"
             },
             {
               "@type": "WorkflowRoute",
@@ -2193,13 +2366,63 @@
             },
             {
               "@type": "WorkflowRoute",
-              "name": "TrustedWorkspace -> RevokeKey",
-              "targetStep": "/api/3/workflow_steps/6c6e97d9-4c98-509d-8137-ff46924df7b5",
+              "name": "TrustedWorkspace -> AlreadyProcessed",
+              "targetStep": "/api/3/workflow_steps/ca60b5e0-9e5a-5ad4-abdf-ab6ff50b9793",
               "sourceStep": "/api/3/workflow_steps/c7cc4b5b-1b2b-5be6-bcc2-4a76f1977a56",
               "label": null,
               "isExecuted": false,
               "group": null,
-              "uuid": "35a9bb1e-43e1-597c-9d6a-7d3d2092b73c"
+              "uuid": "26e380ca-46ae-569e-b769-126425656f44"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "AlreadyProcessed -> AlreadyProcessedTerminal",
+              "targetStep": "/api/3/workflow_steps/c50f4f7b-dd24-58a6-a1fe-beb8c79f5022",
+              "sourceStep": "/api/3/workflow_steps/ca60b5e0-9e5a-5ad4-abdf-ab6ff50b9793",
+              "label": "Already revoked for this request_id - refuse replay",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "5f97b85b-8d63-5ee5-977e-dc954cfc8343"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "AlreadyProcessed -> CheckKeyStatus",
+              "targetStep": "/api/3/workflow_steps/7f50712b-8fe5-5f1c-9b49-ea58449e1da1",
+              "sourceStep": "/api/3/workflow_steps/ca60b5e0-9e5a-5ad4-abdf-ab6ff50b9793",
+              "label": "New request_id - check whether the key is already revoked",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "b7d3d2d2-d3ea-5116-9f26-4f84c297b655"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "CheckKeyStatus -> KeyStatusOK",
+              "targetStep": "/api/3/workflow_steps/9442da9e-4ea6-5025-8127-47003646b330",
+              "sourceStep": "/api/3/workflow_steps/7f50712b-8fe5-5f1c-9b49-ea58449e1da1",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "0668a7e7-7bd5-5baf-90d9-be35b0e1f174"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "KeyStatusOK -> AlreadyRevokedTerminal",
+              "targetStep": "/api/3/workflow_steps/7adb0412-fef1-505a-85eb-f2bcdde76a3b",
+              "sourceStep": "/api/3/workflow_steps/9442da9e-4ea6-5025-8127-47003646b330",
+              "label": "Key is already revoked - do nothing more",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "acdda1df-64d2-5541-9dcd-70eb8bf70387"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "KeyStatusOK -> RevokeKey",
+              "targetStep": "/api/3/workflow_steps/6c6e97d9-4c98-509d-8137-ff46924df7b5",
+              "sourceStep": "/api/3/workflow_steps/9442da9e-4ea6-5025-8127-47003646b330",
+              "label": "Key is active - revoke it",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "8ef60ce7-f2fd-550e-8edd-f842c621de6f"
             },
             {
               "@type": "WorkflowRoute",
@@ -2280,6 +2503,36 @@
               "isExecuted": false,
               "group": null,
               "uuid": "4726c684-e3b3-5144-9269-159909b034b5"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "CheckKeyStatusOrphan -> KeyStatusOrphanOK",
+              "targetStep": "/api/3/workflow_steps/69194747-4b49-5486-8dfb-ed02fbe1e38f",
+              "sourceStep": "/api/3/workflow_steps/69d2d3e0-4bc6-5020-98b7-93e062161970",
+              "label": null,
+              "isExecuted": false,
+              "group": null,
+              "uuid": "9e463fdd-c7cf-542e-aa43-88f8dc2b6e24"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "KeyStatusOrphanOK -> AlreadyRevokedTerminal",
+              "targetStep": "/api/3/workflow_steps/7adb0412-fef1-505a-85eb-f2bcdde76a3b",
+              "sourceStep": "/api/3/workflow_steps/69194747-4b49-5486-8dfb-ed02fbe1e38f",
+              "label": "Orphan key is already revoked",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "a7150eef-5f1d-52ee-aa42-6244a5b93891"
+            },
+            {
+              "@type": "WorkflowRoute",
+              "name": "KeyStatusOrphanOK -> RevokeOrphan",
+              "targetStep": "/api/3/workflow_steps/19f56f97-a944-5f16-a5b2-998c890e425a",
+              "sourceStep": "/api/3/workflow_steps/69194747-4b49-5486-8dfb-ed02fbe1e38f",
+              "label": "Orphan key is active - revoke it",
+              "isExecuted": false,
+              "group": null,
+              "uuid": "84fca0d7-281a-5ba1-ad66-ce1913807dc1"
             },
             {
               "@type": "WorkflowRoute",
@@ -2427,7 +2680,7 @@
             {
               "@type": "WorkflowGroup",
               "name": "Note: TrustedWorkspace",
-              "description": "Pull faig_workspace_id from the bad secret's metadata (set by onboarding), not the request body - a caller must not be able to point peer rotation at a different workspace.",
+              "description": "Pull faig_workspace_id and the prior faig_revoked_request from the bad secret's metadata (set by onboarding and the previous run). The workspace must come from Vault, not the caller's body; the prior request id lets us refuse a replay of the same fresh request.",
               "type": "note",
               "isCollapsed": false,
               "hasTriggerStep": false,
@@ -2436,9 +2689,26 @@
               "reusable": false,
               "top": "1030",
               "left": "1220",
-              "height": "116",
+              "height": "160",
               "width": "440",
               "uuid": "3ff5aed8-371e-5232-886d-e0dd02df5a25",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: AlreadyProcessed",
+              "description": "If this request_id is already stamped on the secret, a prior run already revoked the key and rotated its peers. Refuse the replay.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "1210",
+              "left": "1220",
+              "height": "116",
+              "width": "440",
+              "uuid": "3fff5426-3436-5a09-94a2-eba8dea991e3",
               "recordTags": []
             },
             {
@@ -2451,8 +2721,8 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1420",
-              "left": "1220",
+              "top": "1810",
+              "left": "1560",
               "height": "94",
               "width": "440",
               "uuid": "0aacf9cc-7536-5f26-8e62-ad7c35fd89e5",
@@ -2468,8 +2738,8 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1810",
-              "left": "540",
+              "top": "2200",
+              "left": "1220",
               "height": "94",
               "width": "440",
               "uuid": "a21c59c3-8444-5559-b35f-9c1788b34fab",
@@ -2485,8 +2755,8 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1534",
-              "left": "1220",
+              "top": "1924",
+              "left": "1560",
               "height": "94",
               "width": "440",
               "uuid": "27139deb-d736-5e30-bab9-50426184094e",
@@ -2502,8 +2772,8 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1166",
-              "left": "880",
+              "top": "1346",
+              "left": "1220",
               "height": "116",
               "width": "440",
               "uuid": "d21e6531-bcb6-585e-8fe3-9af3c94c78bb",
@@ -2519,8 +2789,8 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "1940",
-              "left": "540",
+              "top": "2330",
+              "left": "1220",
               "height": "94",
               "width": "440",
               "uuid": "00fc1f24-5643-5049-832c-9098e0c32291",
@@ -2536,8 +2806,8 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "2070",
-              "left": "540",
+              "top": "2460",
+              "left": "1220",
               "height": "72",
               "width": "440",
               "uuid": "777adf99-106f-5bec-985f-7d796ca5c77e",
@@ -2553,8 +2823,8 @@
               "hideInLogs": true,
               "metadata": [],
               "reusable": false,
-              "top": "2330",
-              "left": "1220",
+              "top": "2720",
+              "left": "1900",
               "height": "94",
               "width": "440",
               "uuid": "68608e60-fbc7-54a1-8015-ce6be2f5a8c0",
@@ -2575,6 +2845,40 @@
               "height": "94",
               "width": "440",
               "uuid": "e080eefb-04d4-592b-ba9a-11718aaea4be",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: AlreadyProcessedTerminal",
+              "description": "Replay of the same request_id - the first run already handled it.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "1482",
+              "left": "1220",
+              "height": "94",
+              "width": "440",
+              "uuid": "8f5b263b-36ea-55c5-a9af-ca324a8e59be",
+              "recordTags": []
+            },
+            {
+              "@type": "WorkflowGroup",
+              "name": "Note: AlreadyRevokedTerminal",
+              "description": "Key was already revoked - do not re-run peer rotation.",
+              "type": "note",
+              "isCollapsed": false,
+              "hasTriggerStep": false,
+              "hideInLogs": true,
+              "metadata": [],
+              "reusable": false,
+              "top": "1596",
+              "left": "1220",
+              "height": "72",
+              "width": "440",
+              "uuid": "8e0a4e02-8e8d-51e8-897e-388d6c48ccf7",
               "recordTags": []
             }
           ],

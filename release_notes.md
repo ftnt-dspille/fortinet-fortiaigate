@@ -1,5 +1,24 @@
 # fortinet-fortiaigate release notes
 
+## 1.6.11
+
+Idempotency and already-revoked short-circuit on the revocation playbook:
+
+- **Dedup `request_id`.** Each successful revocation stamps
+  `faig_revoked_request` on the Vault secret's metadata. A later call with
+  the same `request_id` is refused as `already_processed` before any key
+  or secret is touched - a replay inside the 15-minute freshness window
+  can no longer churn peer secrets by re-rotating them on every call.
+- **Pre-flight the key's status.** `CheckKeyStatus` calls
+  `get_virtual_key` on `key_id` before `RevokeKey`. If the gateway already
+  shows the key as `revoked`, the run ends on `already_revoked` and no
+  peers are rotated. The orphan branch (no Vault secret for the key) gets
+  the same check through `CheckKeyStatusOrphan`.
+
+Together these close the practical blast radius of a request_id replay:
+the first run revokes and rotates; every repeat is a no-op.
+
+## 1.6.10
 ## 1.6.10
 
 - The revocation playbook refuses a traffic log older than 15 minutes. A
