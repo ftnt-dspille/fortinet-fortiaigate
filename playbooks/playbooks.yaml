@@ -342,10 +342,16 @@ playbooks:
 
       - name: PathAllowed
         type: decision
-        comment: Checked before any Vault call, so the caller gets a result, not a failed run.
+        comment: |
+          Checked before any Vault call, so the caller gets a result, not a failed run.
+          The regex is an allowlist: alphanumerics, underscore, hyphen, dot and
+          forward slash only, starting on a non-dot. That alone kills backslash,
+          null byte, percent-encoded tricks, scheme prefixes and absolute paths;
+          the explicit `..`/`.` segment check kills a path that is otherwise all
+          allowed chars but still walks the tree.
         conditions:
           - display: Path given and allowed
-            when: "{{ vars.secret_path and '..' not in vars.secret_path.split('/') and '.' not in vars.secret_path.split('/') }}"
+            when: "{{ vars.secret_path and (vars.secret_path | regex_search('^[A-Za-z0-9_-][A-Za-z0-9_./-]*$')) and '..' not in vars.secret_path.split('/') and '.' not in vars.secret_path.split('/') }}"
             next: CheckPathFree
           - display: Path missing or not allowed
             default: true
@@ -449,7 +455,7 @@ playbooks:
           secret_path: '{{ vars.secret_path }}'
           key_id: ''
           expires_at: ''
-          outcome: "{{ 'secret_path_required' if not vars.secret_path else ('secret_path_not_allowed' if ('..' in vars.secret_path.split('/') or '.' in vars.secret_path.split('/')) else 'path_in_use') }}"
+          outcome: "{{ 'secret_path_required' if not vars.secret_path else ('secret_path_not_allowed' if (not (vars.secret_path | regex_search('^[A-Za-z0-9_-][A-Za-z0-9_./-]*$')) or '..' in vars.secret_path.split('/') or '.' in vars.secret_path.split('/')) else 'path_in_use') }}"
 
       - name: WriteFailed
         type: set_variable
@@ -527,7 +533,7 @@ playbooks:
         type: decision
         conditions:
           - display: Have key_id, request_id and a safe secret_folder
-            when: "{{ (vars.key_id | string | length) > 0 and (vars.request_id | string | length) > 0 and vars.secret_folder and '..' not in vars.secret_folder.split('/') and '.' not in vars.secret_folder.split('/') }}"
+            when: "{{ (vars.key_id | string | length) > 0 and (vars.request_id | string | length) > 0 and vars.secret_folder and (vars.secret_folder | regex_search('^[A-Za-z0-9_-][A-Za-z0-9_./-]*$')) and '..' not in vars.secret_folder.split('/') and '.' not in vars.secret_folder.split('/') }}"
             next: VerifyBlock
           - display: Missing a required field - refuse
             default: true

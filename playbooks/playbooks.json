@@ -917,7 +917,7 @@
                 "conditions": [
                   {
                     "option": "Path given and allowed",
-                    "condition": "{{ vars.secret_path and '..' not in vars.secret_path.split('/') and '.' not in vars.secret_path.split('/') }}",
+                    "condition": "{{ vars.secret_path and (vars.secret_path | regex_search('^[A-Za-z0-9_-][A-Za-z0-9_./-]*$')) and '..' not in vars.secret_path.split('/') and '.' not in vars.secret_path.split('/') }}",
                     "step_iri": "/api/3/workflow_steps/da566cb1-2a12-586c-9a05-4b954d9eb560",
                     "step_name": "CheckPathFree"
                   },
@@ -1155,7 +1155,7 @@
                 "secret_path": "{{ vars.secret_path }}",
                 "key_id": "",
                 "expires_at": "",
-                "outcome": "{{ 'secret_path_required' if not vars.secret_path else ('secret_path_not_allowed' if ('..' in vars.secret_path.split('/') or '.' in vars.secret_path.split('/')) else 'path_in_use') }}"
+                "outcome": "{{ 'secret_path_required' if not vars.secret_path else ('secret_path_not_allowed' if (not (vars.secret_path | regex_search('^[A-Za-z0-9_-][A-Za-z0-9_./-]*$')) or '..' in vars.secret_path.split('/') or '.' in vars.secret_path.split('/')) else 'path_in_use') }}"
               },
               "status": null,
               "top": "770",
@@ -1497,7 +1497,7 @@
                 "conditions": [
                   {
                     "option": "Have key_id, request_id and a safe secret_folder",
-                    "condition": "{{ (vars.key_id | string | length) > 0 and (vars.request_id | string | length) > 0 and vars.secret_folder and '..' not in vars.secret_folder.split('/') and '.' not in vars.secret_folder.split('/') }}",
+                    "condition": "{{ (vars.key_id | string | length) > 0 and (vars.request_id | string | length) > 0 and vars.secret_folder and (vars.secret_folder | regex_search('^[A-Za-z0-9_-][A-Za-z0-9_./-]*$')) and '..' not in vars.secret_folder.split('/') and '.' not in vars.secret_folder.split('/') }}",
                     "step_iri": "/api/3/workflow_steps/11b385b5-c816-53c8-82c9-074b80c52f51",
                     "step_name": "VerifyBlock"
                   },
