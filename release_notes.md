@@ -1,6 +1,20 @@
 # fortinet-fortiaigate release notes
 
-## 1.6.0
+## 1.7.0
+
+- Merges the 1.6.1 - 1.6.13 security hardening (URL-encode ids, Vault path checks,
+  revoke-and-rotate-peers on guardrail block, traffic-log replay guard (<=15 min),
+  no raw log/prompt leakage from Get Traffic Log, fail-closed key resolution,
+  clamp caller-controlled limits, request_id dedup, short-circuit on
+  already-revoked keys, completion marker written only after remediation finishes)
+  with scheduled data ingestion (Get Blocked Traffic + the Data Ingestion sample
+  playbooks).
+- Every gateway call routes through `pyfortiaigate`; the legacy `connections.py`
+  module is gone. The connector no longer makes raw HTTP calls.
+- Sample playbooks collection is "Sample - Fortinet FortiAIGate - 1.7.0" and
+  carries all 8 workflows (Vault lifecycle + Data Ingestion).
+
+## 1.6.0 (ingestion branch)
 
 - **Wrong-role logins are caught and explained** (live-verified on 8.0.2 with a throwaway
   workspace member and admin):
@@ -79,6 +93,186 @@ Known limits:
 
 - **Get Blocked Traffic** keeps the newest `max_items` rows of a window. A scheduled run that
   sees more blocked requests than the cap in one interval does not ingest the older excess.
+## 1.6.12
+
+Fixes the state-drift risk in 1.6.11's idempotency:
+
+- The replay gate now trips on `faig_remediation_complete`, a NEW metadata
+  marker written only at the end of the Revoked / NoPeers success paths.
+  `faig_revoked_request` from 1.6.4 is still stamped at revoke time for
+  audit, but the dedup decision no longer uses it: a crash between
+  `RevokeKey` and `RotatePeers` left the key dead and peers un-rotated,
+  while the pre-emptive stamp made the next call refuse to finish
+  remediation. The next call now resumes.
+- The `already-revoked` branch no longer short-circuits to a terminal.
+  When the gateway shows the key already revoked (manual revoke, or an
+  earlier crashed run), the playbook SKIPS `RevokeKey` only and continues
+  to `ClearSecret`, `StampRevoked`, `FindPeers` and `RotatePeers`, so
+  remediation finishes. The orphan branch (no Vault secret for the key)
+  keeps the `already_revoked` terminal; there is nothing to remediate.
+
+## 1.6.11
+## 1.6.11
+
+Idempotency and already-revoked short-circuit on the revocation playbook:
+
+- **Dedup `request_id`.** Each successful revocation stamps
+  `faig_revoked_request` on the Vault secret's metadata. A later call with
+  the same `request_id` is refused as `already_processed` before any key
+  or secret is touched - a replay inside the 15-minute freshness window
+  can no longer churn peer secrets by re-rotating them on every call.
+- **Pre-flight the key's status.** `CheckKeyStatus` calls
+  `get_virtual_key` on `key_id` before `RevokeKey`. If the gateway already
+  shows the key as `revoked`, the run ends on `already_revoked` and no
+  peers are rotated. The orphan branch (no Vault secret for the key) gets
+  the same check through `CheckKeyStatusOrphan`.
+
+Together these close the practical blast radius of a request_id replay:
+the first run revokes and rotates; every repeat is a no-op.
+
+## 1.6.10
+## 1.6.10
+
+- The revocation playbook refuses a traffic log older than 15 minutes. A
+  privileged caller could otherwise reuse any past block uuid to revoke a
+  key they later want to kill. The window is enforced in BlockVerified
+  against the log's timeStamp; a stale request ends on
+  verification_failed, no key or secret is touched.
+- De-duplication of request_id is not enforced yet - a repeat of the same
+  fresh request still revokes. The practical blast radius is small (the
+  key is already dead after the first run; peers were already rotated),
+  but a future rev will record each faig_revoked_request on the metadata
+  and refuse duplicates server-side.
+
+## 1.6.9
+## 1.6.9
+
+- `get_traffic_log` fails CLOSED on key resolution. When the log has a
+  `keyPrefix`, we now require the resolved key's `keyPreview` to equal it,
+  even when only one key matches by name. Same-named keys are no longer
+  disambiguated by name alone; a candidate with a mismatched prefix is
+  dropped, not accepted as a fallback.
+- `get_traffic_log` no longer returns the raw traffic log or the prompt,
+  response or detector `details`. The one playbook that reads it needs only
+  `uuid`, `keyId`, `keyName`, `verdict`, `action`, `workspace` and the
+  detector names; everything else was being persisted in debug-mode run
+  history, including the user's prompt and the model's response.
+
+## 1.6.8
+## 1.6.8
+
+- The revocation playbook now cross-checks the request against FortiAIGate
+  traffic logs before acting. The caller must send a `request_id`, and the
+  playbook calls the new `get_traffic_log` operation on that uuid; it
+  proceeds only if the log's `keyId` matches the caller's `key_id` and its
+  verdict is `block`. Otherwise the run ends on `verification_failed` and
+  does nothing. A caller can no longer trigger revocation on an arbitrary
+  key by typing its id into the request body.
+- New connector operation **Get Traffic Log** returns one record by its
+  request id, with the key id (resolved from the log's `keyAlias` and
+  `keyPrefix`), verdict (normalised to `block`/`allow`), action, model,
+  user and workspace.
+
+## 1.6.6
+## 1.6.6
+
+More hardening on the revocation playbook:
+
+- `extend_days` and `max_peers` from the request body are clamped to safe
+  ranges (`1-30` days, `1-50` peers), so a caller cannot bypass the fan-out
+  cap or push the whole fleet's expiry out past the policy.
+- `secret_folder` is rejected if it contains a `.` or `..` segment, so a
+  caller cannot escape the configured app folder when searching for peers.
+- The verification of a request as a real FortiAIGate block (lookup by
+  `request_id` in the traffic logs) is left as a documented future
+  enhancement; for now the route's SOAR token is the control, so give it
+  only to systems authorized to revoke a key.
+
+## 1.6.5
+
+Security fixes to the new revocation playbook from 1.6.4:
+
+- The workspace used for peer rotation now comes from the bad secret's own
+  Vault metadata (set by onboarding, trusted). The `workspace_id` in the
+  caller's request body is ignored - a caller could otherwise point peer
+  rotation at a different workspace.
+- An empty workspace never fans out. If the bad secret has no
+  `faig_workspace_id` tag, the run ends on `revoked_no_peers` instead of
+  looking for secrets tagged with "".
+- A failed `revoke_virtual_key` is now a terminal `revoke_failed`, not a
+  success. On the error path the Vault secret is NOT cleared (the app would
+  otherwise fail-closed while the attacker's key is still live) and no peers
+  are rotated. A person is paged.
+- Metadata patches skip empty values so Vault's non-empty-value check
+  doesn't fail the stamp (`faig_revoked_request` is optional).
+
+## 1.6.4
+
+- New sample playbook **Revoke FortiAIGate Key on Guardrail Block**: an
+  `api_endpoint` playbook that revokes the virtual key named in a FortiAIGate
+  guardrail-block event, clears its Vault secret with `api_key=REVOKED` and
+  stamps `faig_revoked_at` / `faig_revoked_policy` / `faig_revoked_request`,
+  then rotates every peer secret tagged with the same `faig_workspace_id` so
+  the blast radius is contained. Peers are rotated through the existing child
+  **Renew FortiAIGate Key in Vault**, so each keeps its key id, policies,
+  limits and model access and only the Vault secret's `api_key` field
+  changes. Outcomes: `revoked_and_rotated`, `revoked_no_peers`,
+  `revoked_orphan` (no tagged secret), `too_many_peers` (over `max_peers`),
+  `conflict` (two secrets tagged to the same bad key) and `bad_request`.
+- **Onboard FortiAIGate Key to Vault** also stamps `faig_workspace_id` on the
+  new secret, from the key's resolved workspace id. The renewal playbooks are
+  unaffected (they match on `faig_key_id`), but revocation needs this join
+  column. A one-time backfill script (`scripts/backfill_workspace_tag.py`)
+  adds it to pre-1.6.4 secrets.
+
+## 1.6.3
+
+- **Onboard FortiAIGate Key to Vault** checks the secret path before any Vault
+  call, so a path with a `.` or `..` segment returns `secret_path_not_allowed` to
+  the caller instead of failing the run (`hashicorp-vault-kv` 1.2.1 refuses such
+  a path itself). Sample playbooks are built against `hashicorp-vault-kv` 1.2.1.
+
+## 1.6.2
+
+- An id of `.` or `..` (or an empty one) is refused before any API call. URL
+  encoding leaves dots alone, so in 1.6.1 an id of exactly `..` could still climb
+  one level of the API path.
+
+## 1.6.1
+
+- Every id put into an API path (key, workspace, policy, guardrail, detector) is
+  URL-encoded. Ids now reach paths from playbook input - a Vault metadata tag, an
+  onboarding API body - and a value such as `../../admin/...` could otherwise
+  steer the connector's session to another route.
+- **Onboard FortiAIGate Key to Vault** refuses a `secret_path` containing `..`
+  (`secret_path_not_allowed`).
+- README: who may write the Vault tags, and who may call the onboarding route.
+
+## 1.6.0
+
+- New operation **List Expiring Virtual Keys**: keys that expire within
+  **Within (Days)** (default 7), soonest first, and by default the ones already
+  expired. Keys with no expiry and revoked or suspended keys are never listed.
+- **Renew Virtual Key** now also moves out an expiry that would come within
+  **Extend By (Days)**, so a key renewed before it expires no longer expires a
+  few days later anyway. An expiry is never shortened; a key with no expiry is
+  only rotated. Output adds `old_expires_at`.
+- **Create Virtual Key** takes **Providers** (FortiAIGate 8.0.2 refuses a key
+  with no model access) and **Expires In (Days)**, and returns the secret as
+  `new_secret` as well as the gateway's own field.
+- Fixed: **Create Virtual Key** failed on 8.0.2 for an organization administrator
+  with HTTP 404 "the key owner is not a member of this workspace", even for a
+  member. Keys are now always created through the workspace route.
+- New sample playbooks **Renew Expiring FortiAIGate Keys in Vault**, **Renew
+  FortiAIGate Key in Vault** and **Onboard FortiAIGate Key to Vault** (an API
+  endpoint): keys are linked to their Vault secrets by a `faig_key_id` metadata
+  tag, renewed before they expire, and written back without reading any secret.
+  They need `hashicorp-vault-kv` 1.2.0. They replace the sample playbook **Heal
+  Expired FortiAIGate Key in Vault**, which is removed: the renewal covers expired
+  keys too, and Heal read the secret, which the renewal never does. All sample
+  playbooks run in debug mode so
+  an API caller can read the results; see the README for what that keeps in the
+  run history.
 
 ## 1.5.1
 

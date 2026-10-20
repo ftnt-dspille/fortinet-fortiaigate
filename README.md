@@ -91,7 +91,7 @@ Key lifecycle details:
 - update virtual key -> merge-update: the API replaces the whole record, so the
   library reads the current record and resends it plus your changes.
 
-## Sample playbook: heal an expired key stored in Vault
+## Sample playbooks: renew keys before they expire, and onboard new ones
 
 `Heal Expired FortiAIGate Key in Vault` keeps an application's key working.
 Give it the KV v2 path of the secret (`secret_path`, and `key_field` when the key is
@@ -103,6 +103,91 @@ the run with a message so a person decides. It needs the `hashicorp-vault-kv`
 connector with a write-capable token, and returns `rotation_result`, `rotated`,
 `key_id` and `key_method`. Schedule it, or call it once per secret from a parent
 playbook.
+
+### Vault lifecycle playbooks (1.6.1 - 1.6.13 hardening)
+
+These need `hashicorp-vault-kv` 1.2.1 or later. Each FortiAIGate key is linked to
+the Vault secret that holds it by a custom metadata tag on that secret,
+`faig_key_id=<key uuid>`. Vault cannot search, so the renewal lists a folder and
+reads each secret's metadata; it never reads a secret value.
+
+- **Renew Expiring FortiAIGate Keys in Vault** (schedule it, for example every
+  15 minutes): lists the keys that expire within `within_days` (default 2) or
+  already have, finds the tagged secrets under `secret_folder` (default `lab`),
+  and renews each key that exactly one secret is tagged with, through the child
+  playbook. A key no secret is tagged with is left to expire (no app uses it); a
+  key tagged on two secrets is not touched and reported in `conflicts`.
+  `extend_days` (default 7) must be more than `within_days`, or every run would
+  renew the same keys again; the playbook refuses that.
+- **Renew FortiAIGate Key in Vault** (the child): renews one key, PATCHes only
+  `api_key` in its secret, stamps `faig_rotated_at` and `faig_expires_at`, and
+  verifies the new secret. It always ends on a result: `renewed`,
+  `renew_failed` (a revoked key, say) or `write_failed`. After a failed write the
+  new secret is stored nowhere; fix Vault and run it again.
+- **Onboard FortiAIGate Key to Vault** (API endpoint
+  `POST /api/triggers/1/fortiaigate/onboard-key`, token authentication): creates a
+  key for an app and stores it, tagged, in a new Vault secret. Body:
+  `secret_path` (required), `key_name` (default: the path), `workspace`,
+  `providers` (default `openai`), `expires_in_days` (default 7), `fields` (extra
+  secret fields such as `base_url`). An existing secret is never overwritten
+  (`path_in_use`), and the key is revoked if the Vault write fails. The trigger
+  returns a `task_id`; the last step returns `key_name`, `secret_path`,
+  `key_id`, `expires_at` and `outcome`.
+- **Revoke FortiAIGate Key on Guardrail Block** (API endpoint
+  `POST /api/triggers/1/fortiaigate/guardrail-block`, token authentication):
+  reacts to a FortiAIGate DLP, ATLAS or detector block. Body: `key_id`
+  (required), `workspace_id`, `policy`, `request_id`, `secret_folder` (default
+  `lab`), `extend_days` (default 7), `max_peers` (default 25). Revokes the bad
+  key FIRST (attacker loses access while the run finishes the rest), clears the
+  Vault secret the key was in (`api_key=REVOKED`), stamps `faig_revoked_at`,
+  `faig_revoked_policy` and `faig_revoked_request` on it, then rotates every
+  peer secret under `secret_folder` tagged with the same `faig_workspace_id`
+  through the child renewal. Over `max_peers` the run flags only (contains a
+  loud blast radius). Outcomes: `revoked_and_rotated`, `revoked_no_peers`,
+  `revoked_orphan`, `too_many_peers`, `conflict`, `bad_request`. Needs
+  `faig_workspace_id` on each tagged secret: onboarding stamps it, and
+  `scripts/backfill_workspace_tag.py` fills in secrets created before 1.6.4.
+
+What has to be in place:
+
+- A Vault policy on the folder for the token in the default `hashicorp-vault-kv`
+  configuration - find and update, never read:
+
+  ```hcl
+  path "secret/metadata/apps/*" { capabilities = ["read", "list", "patch"] }
+  path "secret/metadata/apps"   { capabilities = ["list"] }
+  path "secret/data/apps/*"     { capabilities = ["create", "patch"] }
+  ```
+
+  (`create` is for onboarding only.) Use a periodic token or AppRole: if the
+  token expires, every run fails.
+- A FortiAIGate login in the default configuration that can list keys, update
+  their expiry and rotate them, in every workspace the folder's apps use (an
+  organization administrator, or a workspace administrator per workspace). To
+  onboard, the login must be a member of the target workspace; it becomes the
+  key's owner.
+- Every secret tagged with `faig_key_id`. Onboarding does this; tag secrets
+  that already exist once, as an administrator (it is the only step that has to
+  read a secret).
+- Only SOAR and Vault administrators may write metadata under the folder. The
+  `faig_key_id` tag is the only link from a key to its secret, so whoever can
+  tag a secret can have another key's new secret written into it. App teams
+  need read on their own secret's data, nothing on metadata.
+- Who may call the onboarding route: it is token-authenticated, so it runs as
+  the calling FortiSOAR user or API key. Give that permission to the systems
+  that onboard apps (a pipeline, an ITSM integration) only. The playbook
+  refuses a `secret_path` containing `..`, and the Vault policy keeps writes
+  inside the folder.
+- Apps that pick up a changed secret by themselves (a Vault Agent template, a
+  watcher). The old secret stops working the moment the key is rotated.
+
+**Debug mode is on** in all the sample playbooks. FortiSOAR keeps a run's step
+outputs only for a playbook in debug mode, and without them an API caller cannot
+read what the onboarding returned. The cost: debug also keeps every step's
+output, and the Create and Renew steps return the new secret, so it sits in
+plaintext in the run history until the key is rotated again or the logs are
+purged. Restrict who can read playbook execution logs, and keep log retention
+short.
 
 ## Tests
 

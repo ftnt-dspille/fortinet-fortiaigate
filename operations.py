@@ -14,7 +14,7 @@ from __future__ import annotations
 import http.client
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import unquote, urlparse
 
@@ -185,6 +185,37 @@ def list_virtual_keys(config, params):
 operations['list_virtual_keys'] = list_virtual_keys
 
 
+def list_expiring_virtual_keys(config, params):
+    """Keys that expire within N days, and (by default) keys that already have.
+
+    A key with no expiry never expires, and a revoked or suspended key was shut
+    off on purpose, so neither is listed. Soonest first.
+    """
+    from datetime import datetime, timedelta, timezone
+    within = _days(params, 'within_days', 7, 'Within (Days)', allow_zero=True)
+    include_expired = str(_opt(params, 'include_expired') if _opt(params, 'include_expired') is not None
+                          else True).lower() not in ('false', '0', 'no')
+    now = datetime.now(timezone.utc)
+    horizon = now + timedelta(days=within)
+    keys = []
+    for record in _client(config).list_virtual_keys(workspace_id=_opt(params, 'workspace_id')):
+        expires = _parse_time(record.get('expiresAt'))
+        status = record.get('status')
+        if expires is None or status not in ('active', 'expired') or expires > horizon:
+            continue
+        expired = status == 'expired' or expires <= now
+        if expired and not include_expired:
+            continue
+        keys.append(dict(record, expired=expired,
+                         days_left=round((expires - now).total_seconds() / 86400, 2)))
+    keys.sort(key=lambda k: k['days_left'])
+    return {'keys': keys, 'key_ids': [k['id'] for k in keys], 'count': len(keys),
+            'within_days': within, 'checked_at': _iso(now)}
+
+
+operations['list_expiring_virtual_keys'] = list_expiring_virtual_keys
+
+
 def get_virtual_key(config, params):
     return _client(config).virtual_key(_required(params, 'key_id'))
 
@@ -197,15 +228,24 @@ def create_virtual_key(config, params):
     workspace = _opt(params, 'workspace_id') or client.default_workspace()
     if not workspace:
         raise ValueError('workspace_id is required')
-    # 8.0.2 refuses a key with no model access (422 "At least one model or model group is
-    # required"): grant every provider the workspace has an enabled model from.
-    providers = [p['providerId'] for p in client.grantable_providers(workspace)
-                 if any(m.get('effectiveEnabled', m.get('enabled')) for m in p.get('models') or [])]
+    # Caller may pass explicit provider_ids; otherwise auto-grant every provider the
+    # workspace has an enabled model from, because 8.0.2 refuses a key with no model
+    # access (422 "At least one model or model group is required").
+    explicit = _ids_list(params.get('provider_ids'))
+    if explicit:
+        providers = explicit
+    else:
+        providers = [p['providerId'] for p in client.grantable_providers(workspace)
+                     if any(m.get('effectiveEnabled', m.get('enabled')) for m in p.get('models') or [])]
+    expires_at = _opt(params, 'expires_at')
+    if not expires_at and _opt(params, 'expires_in_days') not in (None, ''):
+        days = _days(params, 'expires_in_days', 30, 'Expires In (Days)')
+        expires_at = _iso(datetime.now(timezone.utc) + timedelta(days=days))
     return client.create_virtual_key(
         workspace,
         _required(params, 'key_name'),
         provider_ids=providers or None,
-        expires_at=_opt(params, 'expires_at'),
+        expires_at=expires_at,
         tpm=_int_opt(params, 'tpm'),
         rpm=_int_opt(params, 'rpm'),
     )
@@ -234,18 +274,49 @@ def rotate_virtual_key(config, params):
 operations['rotate_virtual_key'] = rotate_virtual_key
 
 
+def _parse_time(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace('Z', '+00:00')).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _days(params, name, default, title, allow_zero=False):
+    """Clamp a caller-supplied number-of-days to the 0 - 3650 range (master 1.6.6)."""
+    value = _opt(params, name)
+    try:
+        days = float(value) if value not in (None, '') else float(default)
+    except (TypeError, ValueError):
+        raise ConnectorError('{0} must be a number of days'.format(title))
+    if not 0 <= days <= 3650 or (days == 0 and not allow_zero):
+        raise ConnectorError('{0} must be between 0 and 3650, not {1:g}'.format(title, days))
+    return days
+
+
+def _iso(moment):
+    return moment.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+
+
 def renew_virtual_key(config, params):
     """Give a virtual key a new secret, keeping its id, name, limits and policies.
 
+    The key's expiry is moved to Extend By (Days) from now when it would come
+    sooner - so a key renewed before it expires does not expire anyway a few
+    days later - and is never shortened. An expired key needs this too:
     FortiAIGate only rotates an active key ("cannot be rotated: mint a new key
     instead"), but an expired key becomes active again when its expiry moves into
-    the future. So the library extends an expired key and then rotates it; an
-    active key is rotated. A revoked or suspended key is refused and left untouched.
-    The new secret is shown once - store it straight away (for example in HashiCorp
-    Vault).
+    the future. So pyfortiaigate extends an expired key (and any key whose expiry
+    would come sooner than Extend By) and then rotates it; an active key with a
+    far-off expiry is rotated straight away; a key with no expiry is only rotated.
+    A revoked or suspended key is refused and left untouched. If the rotate fails
+    after an extend, the original expiry is put back (an expired key is revoked
+    if that also fails), so the old secret never stays working. The new secret
+    is shown once - store it straight away (for example in HashiCorp Vault).
     """
     ref = _key_ref(params)
-    days = float(_opt(params, 'expires_in_days') or 30)
+    days = _days(params, 'expires_in_days', 30, 'Extend By (Days)')
     try:
         renewed = _client(config).renew_virtual_key(ref, expires_in_days=days)
     except ValueError as err:  # a revoked or suspended key, or days out of range
@@ -254,8 +325,10 @@ def renew_virtual_key(config, params):
         'method': renewed.method,
         'key_id': renewed.key_id,
         'old_status': renewed.old_status,
+        'old_expires_at': getattr(renewed, 'old_expires_at', None),
         'expires_at': renewed.expires_at,
         'secretKey': renewed.secret,
+        'new_secret': renewed.secret,
         'key': {k: v for k, v in renewed.record.items() if k != 'secretKey'},
     }
 
@@ -390,6 +463,95 @@ def list_audit_logs(config, params):
 
 
 operations['list_audit_logs'] = list_audit_logs
+
+
+def get_traffic_log(config, params):
+    """One traffic-log record by its FortiAIGate request id (``uuid``).
+
+    Used by the revocation playbook to verify a guardrail-block event. The
+    traffic log names the virtual key only by ``keyAlias`` (name) and
+    ``keyPrefix`` (secret preview, not the key id), so this op looks up the
+    key in the matching workspace and returns its id. The playbook can then
+    confirm the key_id the caller named is the one that was blocked.
+
+    ``verdict`` is normalised to lowercase (``block``/``allow``) regardless
+    of whether the gateway returned a boolean or an ``action`` string
+    (``DENY``/``ALLOW``), so a decision step can match on either.
+    """
+    if not params.get('request_id'):
+        raise ValueError('request_id is required')
+    client = _client(config)
+    log = client.traffic_log(params['request_id'])
+    verdict_raw = log.get('verdict')
+    action = str(log.get('action') or '').upper()
+    if isinstance(verdict_raw, bool):
+        verdict = 'block' if verdict_raw else 'allow'
+    else:
+        verdict = str(verdict_raw or '').lower()
+    if not verdict:
+        verdict = 'block' if action == 'DENY' else ('allow' if action == 'ALLOW' else '')
+    # Resolve the key the log names. Prefix (last chars of the secret) is in the
+    # key record's keyPreview; same-named keys are disambiguated by it.
+    alias = str(log.get('keyAlias') or '')
+    prefix = str(log.get('keyPrefix') or '')
+    ws = log.get('workspace') or ''
+    key_id, key_name = '', alias
+    if alias:
+        # list ALL keys the login can see, then filter by alias. Narrow by workspace only
+        # when the key record carries one that matches; records without a workspace field are
+        # kept (older FAIG shapes). ws from the log is a name, which connections.list_virtual_keys
+        # does not resolve.
+        # Fail CLOSED: require that the log's keyPrefix matches the key record's keyPreview
+        # whenever the log carries a prefix (same-named keys share the alias; prefix uniquely
+        # identifies the secret). Workspace is only used to narrow when both sides carry it.
+        def _ws_matches(k):
+            wk = k.get('workspace')
+            if not wk or not ws:
+                return True
+            if isinstance(wk, dict):
+                return wk.get('name') == ws or wk.get('id') == ws
+            return wk == ws
+        candidates = [k for k in client.list_virtual_keys()
+                      if str(k.get('keyName') or '') == alias and _ws_matches(k)]
+        if prefix:
+            candidates = [k for k in candidates if str(k.get('keyPreview') or '') == prefix]
+        if len(candidates) == 1:
+            key_id = str(candidates[0].get('id') or '')
+            key_name = str(candidates[0].get('keyName') or alias)
+    return {
+        'uuid': log.get('uuid') or log.get('requestId'),
+        'keyId': key_id,
+        'keyName': key_name,
+        'keyPrefix': prefix,
+        'verdict': verdict,
+        'action': action,
+        'timeStamp': log.get('timeStamp'),
+        'workspace': ws,
+        'user': log.get('user') or '',
+        'model': log.get('model') or '',
+        'requestPath': log.get('requestPath') or '',
+        'detector': _detector_names(log.get('violation') or log.get('detector')),
+    }
+
+
+def _detector_names(violation):
+    """Strip prompt/response and violation details; keep only detector names and type.
+    A traffic log carries the user's prompt and the model's response in cleartext;
+    returning them from this op would persist them in debug-mode run history."""
+    names = []
+    if isinstance(violation, dict):
+        for side, hits in violation.items():
+            if not hits:
+                continue
+            for h in (hits if isinstance(hits, list) else [hits]):
+                if isinstance(h, dict):
+                    names.append({'name': str(h.get('detectorName') or h.get('name') or ''),
+                                  'type': str(h.get('type') or ''),
+                                  'side': str(side)})
+    return names
+
+
+operations['get_traffic_log'] = get_traffic_log
 
 
 def get_audit_log_filter_options(config, params):

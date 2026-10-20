@@ -87,7 +87,7 @@ def test_every_operation_is_dispatched_and_listed_in_info_json():
 
 def test_scheduled_ingestion_is_declared():
     info = json.loads((REPO / 'info.json').read_text())
-    assert info['version'] == '1.6.0'
+    assert info['version'] == '1.7.0'
     assert info['ingestion_supported'] is True
     assert info['ingestion_modes'] == ['scheduled']
     assert info['ingestion_preferences'] == {'modules': ['alerts']}
