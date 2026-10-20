@@ -1,113 +1,86 @@
-"""Operation handlers for the FortiAIGate connector. Each takes
-``(config, params)`` and returns a JSON-serializable result."""
+"""Operation handlers for the FortiAIGate connector. Each takes ``(config, params)``
+and returns a JSON-serializable result.
+
+The HTTP client is pyfortiaigate's ``FortiAIGate``. It logs in, routes every call
+to the right scope (an organization administrator's ``/api/v1/admin`` paths, or a
+workspace login's own workspace), and resolves names to ids for workspaces, keys,
+policies, guardrails and detectors. This module maps the connector's parameters
+onto those methods, and keeps the SOAR-specific parts: the dropdown lists, the
+endpoint guard of Execute API Request, and the blocked-traffic ingestion read.
+"""
 
 from __future__ import annotations
 
+import http.client
+import json
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
 from connectors.core.connector import ConnectorError
-
-from .connections import FaigClient, json_object, key_id_from_secret
+from pyfortiaigate import FaigError, FortiAIGate, key_id_from_secret
 
 operations = {}
 
+# What the library raises for an API answer (FaigError), a name it cannot find
+# (LookupError), or a connection that failed (OSError, HTTPException). The connector
+# turns these into a ConnectorError, which FortiSOAR shows as the message.
+API_ERRORS = (FaigError, LookupError, OSError, http.client.HTTPException)
+
+# /api/v1/me/workspaces names a membership "admin" or "member" on 8.0.2 (user records
+# say "workspace_admin"/"workspace_member"); accept both spellings.
+MEMBER_ROLES = ('member', 'workspace_member')
+NEEDS_WS_ADMIN = 'Workspace administrator access required'
+NEEDS_ORG_ADMIN = 'Organization-level access required'
+
+
+def member_message(username) -> str:
+    return ('{0} is only a member of its FortiAIGate workspace. FortiAIGate lets only a '
+            'workspace admin read keys, guardrails, policies and logs or revoke keys: make this '
+            'user a workspace admin, or use an organization administrator.'.format(username))
+
+
+def friendly_error(err, username) -> str:
+    """The message a SOAR user sees: a role refusal says what to change, then the
+    gateway's own answer."""
+    text = str(err)
+    if isinstance(err, ValueError) and text.endswith('pass workspace= or ws_id'):
+        return text.replace('pass workspace= or ws_id',
+                            'set Workspace in the configuration, or choose one in this action')
+    if getattr(err, 'status', None) == 403 and NEEDS_WS_ADMIN in text:
+        return '{0} ({1})'.format(member_message(username), text)
+    if getattr(err, 'status', None) == 403 and NEEDS_ORG_ADMIN in text:
+        return ('This action needs a FortiAIGate organization administrator; {0} is a workspace '
+                'login. ({1})'.format(username, text))
+    return text
+
+
+def _int_opt(params, name):
+    """An optional whole number (FortiAIGate 422s a numeric string)."""
+    value = _opt(params, name)
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except ValueError:
+        raise ValueError('{0} must be a whole number, not {1!r}'.format(name, value)) from None
+
 
 def _client(config):
-    # One execute() shares one client (connector.py), so the login, its role and its
-    # workspace are looked up once per action, not once for the names and again for the call.
+    # One execute() shares one client (connector.py), so the login and the role are
+    # looked up once per action.
     if config.get('_faig_client') is not None:
         return config['_faig_client']
-    return FaigClient(
-        server=config['server'],
-        username=config['username'],
-        password=config['password'],
-        verify_ssl=config.get('verify_ssl', True),
-        data_plane_base=config.get('data_plane_base') or None,
-        timeout=config.get('timeout') or 30,
+    return FortiAIGate(
+        config['server'],
+        config['username'],
+        config['password'],
+        verify=config.get('verify_ssl', True),
+        timeout=float(config.get('timeout') or 30),
+        gateway_url=config.get('data_plane_base') or None,
         workspace=config.get('workspace') or None,
     )
-
-
-# The platform draws a dropdown from a plain list of strings (a {title, value} object
-# renders as "[object Object]") and hands the action exactly the text that was picked.
-# So the id-backed dropdowns list names, which FortiAIGate keeps unique, and
-# resolve_names() turns a picked name into its id before an action runs. A bare id
-# passes through untouched, so playbooks that supply one keep working.
-_UUID = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
-
-
-def _names(rows):
-    """The distinct names of `rows`, in order, for a dropdown."""
-    return list(dict.fromkeys(row[0] for row in rows))
-
-
-def _workspace_rows(client):
-    return [(w.get('_workspaceName') or w.get('workspaceName'), w.get('_id') or w.get('id'))
-            for w in (client.list_my_workspaces() or client.list_workspaces())]
-
-
-def _key_rows(client):
-    # (name, id, active): names are not unique, and a renewed key reuses its name
-    return [(k.get('keyName'), k.get('id'), k.get('status', 'active') == 'active')
-            for k in client.list_virtual_keys()]
-
-
-def _policy_rows(client):
-    return [(p.get('name'), p.get('id')) for p in client.list_policies()]
-
-
-def _guardrail_rows(client):
-    return [(g.get('name'), g.get('id')) for g in client.list_guardrails()]
-
-
-def _detector_rows(client):
-    return ([(d['_name'], d['_id']) for d in client.list_builtin_detectors()]
-            + [(d['_name'], d['_id']) for d in client.list_custom_detectors()])
-
-
-# parameter -> (what it is, how to list its (name, id) rows)
-NAMED_PARAMS = {
-    'workspace_id': ('workspace', _workspace_rows),
-    'key_id': ('virtual key', _key_rows),
-    'policy_ids': ('policy', _policy_rows),
-    'guardrail_id': ('guardrail', _guardrail_rows),
-    'detector_ids': ('detector', _detector_rows),
-}
-
-
-def _resolve_one(value, kind, rows):
-    if not isinstance(value, str) or value.strip() in ('', 'null') or _UUID.match(value.strip()):
-        return value
-    value = value.strip()
-    if any(row[1] == value for row in rows):
-        return value
-    matches = [row for row in rows if row[0] == value]
-    ids = [row[1] for row in matches]
-    if len(ids) > 1:
-        # a renewed key keeps its name: the one active key is the one meant
-        active = [row[1] for row in matches if len(row) < 3 or row[2]]
-        if len(active) == 1:
-            return active[0]
-        raise ConnectorError('More than one {0} is named "{1}"; pass its id instead: {2}'.format(
-            kind, value, ', '.join(str(i) for i in ids)))
-    # No match: hand it on as given, so the API's own not-found answer reaches the user.
-    return ids[0] if ids else value
-
-
-def resolve_names(client, params) -> dict:
-    """Replace each picked dropdown name in `params` with the id the API needs."""
-    out = dict(params or {})
-    for name, (kind, lister) in NAMED_PARAMS.items():
-        value = out.get(name)
-        values = value if isinstance(value, (list, tuple)) else [value]
-        if not any(isinstance(v, str) and v.strip() not in ('', 'null') and not _UUID.match(v.strip())
-                   for v in values):
-            continue
-        rows = lister(client)
-        resolved = [_resolve_one(v, kind, rows) for v in values]
-        out[name] = resolved if isinstance(value, (list, tuple)) else resolved[0]
-    return out
 
 
 def _opt(params, name) -> Optional[str]:
@@ -117,8 +90,28 @@ def _opt(params, name) -> Optional[str]:
     return str(value)
 
 
+def _required(params, name) -> str:
+    value = _opt(params, name)
+    if value is None:
+        raise ValueError('{0} is required'.format(name))
+    return value
+
+
+def _key_ref(params) -> str:
+    """The virtual key to act on: its id or name, else the secret it was issued as."""
+    ref = _opt(params, 'key_id')
+    if ref:
+        return ref
+    secret = _opt(params, 'api_key')
+    if not secret:
+        raise ValueError('key_id or api_key is required')
+    # The secret embeds the key id: derive it here so the secret itself never
+    # reaches a name lookup, whose "no key named ..." error would echo it.
+    return key_id_from_secret(secret)
+
+
 def _ids_list(raw) -> list:
-    """Accept a multiselect list or a comma-separated string of ids."""
+    """Accept a multiselect list or a comma-separated string of ids or names."""
     if raw in (None, '', 'null'):
         return []
     if isinstance(raw, (list, tuple)):
@@ -126,25 +119,67 @@ def _ids_list(raw) -> list:
     return [x.strip() for x in str(raw).split(',') if x.strip()]
 
 
+def _json_object(value, name) -> Optional[dict]:
+    """A JSON object from a dict or a JSON string; blank means none."""
+    if value in (None, '', {}):
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise ConnectorError('{0} must be valid JSON'.format(name))
+    if not isinstance(value, dict):
+        raise ConnectorError('{0} must be a JSON object'.format(name))
+    return value
+
+
+def _endpoint(endpoint) -> str:
+    """A path on the configured server. A full URL, a //host start or a `..` segment
+    (also percent-encoded) is refused, so the session cookie and CSRF token never go
+    to another host."""
+    endpoint = str(endpoint or '').strip()
+    if not endpoint:
+        raise ConnectorError('Endpoint is required')
+    path = endpoint.split('?')[0]
+    for _ in range(3):
+        path = unquote(path)
+    parsed = urlparse(endpoint)
+    if (parsed.scheme or parsed.netloc or endpoint.startswith('//')
+            or '..' in path.split('/') or '\\' in path):
+        raise ConnectorError('Endpoint must be a path on the configured server, '
+                             'for example /api/v1/admin/workspaces - not a full URL')
+    return endpoint if endpoint.startswith('/') else '/' + endpoint
+
+
+def _workspaces(client):
+    """Every workspace for an organization administrator, the login's own otherwise."""
+    return client.workspaces() if client.org_scope else client.my_workspaces()
+
+
+def _names(names) -> list:
+    """The distinct non-empty names, in order: a plain list for a dropdown."""
+    return list(dict.fromkeys(str(n) for n in names if n))
+
+
+# - workspaces, keys, policies, guardrails, detectors ------------------------------
+
+
 def list_workspaces(config, params):
-    return _client(config).list_workspaces()
+    return _workspaces(_client(config))
 
 
 operations['list_workspaces'] = list_workspaces
 
 
 def list_my_workspaces(config, params):
-    return _client(config).list_my_workspaces()
+    return _client(config).my_workspaces()
 
 
 operations['list_my_workspaces'] = list_my_workspaces
 
 
 def list_virtual_keys(config, params):
-    return _client(config).list_virtual_keys(
-        workspace_id=_opt(params, 'workspace_id'),
-        status=_opt(params, 'status'),
-    )
+    return _client(config).virtual_keys(_opt(params, 'workspace_id'), status=_opt(params, 'status'))
 
 
 operations['list_virtual_keys'] = list_virtual_keys
@@ -182,9 +217,7 @@ operations['list_expiring_virtual_keys'] = list_expiring_virtual_keys
 
 
 def get_virtual_key(config, params):
-    if not params.get('key_id'):
-        raise ValueError('key_id is required')
-    return _client(config).get_virtual_key(params['key_id'])
+    return _client(config).virtual_key(_required(params, 'key_id'))
 
 
 operations['get_virtual_key'] = get_virtual_key
@@ -192,20 +225,29 @@ operations['get_virtual_key'] = get_virtual_key
 
 def create_virtual_key(config, params):
     client = _client(config)
-    if not params.get('key_name') or (client.org_scope and not params.get('workspace_id')):
-        raise ValueError('workspace_id and key_name are required')
+    workspace = _opt(params, 'workspace_id') or client.default_workspace()
+    if not workspace:
+        raise ValueError('workspace_id is required')
+    # Caller may pass explicit provider_ids; otherwise auto-grant every provider the
+    # workspace has an enabled model from, because 8.0.2 refuses a key with no model
+    # access (422 "At least one model or model group is required").
+    explicit = _ids_list(params.get('provider_ids'))
+    if explicit:
+        providers = explicit
+    else:
+        providers = [p['providerId'] for p in client.grantable_providers(workspace)
+                     if any(m.get('effectiveEnabled', m.get('enabled')) for m in p.get('models') or [])]
     expires_at = _opt(params, 'expires_at')
     if not expires_at and _opt(params, 'expires_in_days') not in (None, ''):
-        from datetime import datetime, timedelta, timezone
         days = _days(params, 'expires_in_days', 30, 'Expires In (Days)')
         expires_at = _iso(datetime.now(timezone.utc) + timedelta(days=days))
     return client.create_virtual_key(
-        workspace_id=_opt(params, 'workspace_id'),
-        key_name=params['key_name'],
+        workspace,
+        _required(params, 'key_name'),
+        provider_ids=providers or None,
         expires_at=expires_at,
-        tpm=_opt(params, 'tpm'),
-        rpm=_opt(params, 'rpm'),
-        provider_ids=_ids_list(params.get('provider_ids')),
+        tpm=_int_opt(params, 'tpm'),
+        rpm=_int_opt(params, 'rpm'),
     )
 
 
@@ -213,15 +255,12 @@ operations['create_virtual_key'] = create_virtual_key
 
 
 def update_virtual_key(config, params):
-    if not params.get('key_id'):
-        raise ValueError('key_id is required')
-    policy_ids = _ids_list(params.get('policy_ids'))
     return _client(config).update_virtual_key(
-        key_id=params['key_id'],
+        _required(params, 'key_id'),
         expires_at=_opt(params, 'expires_at'),
-        tpm=_opt(params, 'tpm'),
-        rpm=_opt(params, 'rpm'),
-        policy_ids=policy_ids or None,
+        tpm=_int_opt(params, 'tpm'),
+        rpm=_int_opt(params, 'rpm'),
+        policy_ids=_ids_list(params.get('policy_ids')) or None,
     )
 
 
@@ -229,20 +268,13 @@ operations['update_virtual_key'] = update_virtual_key
 
 
 def rotate_virtual_key(config, params):
-    key_id = _opt(params, 'key_id')
-    api_key = _opt(params, 'api_key')
-    if not key_id and api_key:
-        key_id = key_id_from_secret(api_key)
-    if not key_id:
-        raise ValueError('key_id or api_key is required')
-    return _client(config).rotate_virtual_key(key_id)
+    return _client(config).rotate_virtual_key(_key_ref(params))
 
 
 operations['rotate_virtual_key'] = rotate_virtual_key
 
 
 def _parse_time(value):
-    from datetime import datetime, timezone
     if not value:
         return None
     try:
@@ -252,6 +284,7 @@ def _parse_time(value):
 
 
 def _days(params, name, default, title, allow_zero=False):
+    """Clamp a caller-supplied number-of-days to the 0 - 3650 range (master 1.6.6)."""
     value = _opt(params, name)
     try:
         days = float(value) if value not in (None, '') else float(default)
@@ -273,80 +306,123 @@ def renew_virtual_key(config, params):
     sooner - so a key renewed before it expires does not expire anyway a few
     days later - and is never shortened. An expired key needs this too:
     FortiAIGate only rotates an active key ("cannot be rotated: mint a new key
-    instead"), and an expired key becomes active again when its expiry moves
-    into the future. Then the key is rotated. A key with no expiry is only
-    rotated. A revoked or suspended key is refused and left untouched. The new
-    secret is shown once - store it straight away (for example in HashiCorp Vault).
+    instead"), but an expired key becomes active again when its expiry moves into
+    the future. So pyfortiaigate extends an expired key (and any key whose expiry
+    would come sooner than Extend By) and then rotates it; an active key with a
+    far-off expiry is rotated straight away; a key with no expiry is only rotated.
+    A revoked or suspended key is refused and left untouched. If the rotate fails
+    after an extend, the original expiry is put back (an expired key is revoked
+    if that also fails), so the old secret never stays working. The new secret
+    is shown once - store it straight away (for example in HashiCorp Vault).
     """
-    from datetime import datetime, timedelta, timezone
-    key_id = _opt(params, 'key_id')
-    api_key = _opt(params, 'api_key')
-    if not key_id and api_key:
-        key_id = key_id_from_secret(api_key)
-    if not key_id:
-        raise ValueError('key_id or api_key is required')
+    ref = _key_ref(params)
     days = _days(params, 'expires_in_days', 30, 'Extend By (Days)')
-    client = _client(config)
-    old = client.get_virtual_key(key_id)
-    status = old.get('status')
-    now = datetime.now(timezone.utc)
-    expires = _parse_time(old.get('expiresAt'))
-    expired = status == 'expired' or (status == 'active' and expires is not None and expires <= now)
-    if not expired and status != 'active':
-        raise ConnectorError(
-            'Key {0} is {1}; only an active or expired key can be renewed.{2}'.format(
-                key_id, status, ' A revoked key was shut off on purpose.' if status == 'revoked' else ''))
-    target = now + timedelta(days=days)
-    extend = expired or (expires is not None and expires < target)
-    new_expiry = _iso(target) if extend else None
-    if extend:
-        client.update_virtual_key(key_id, expires_at=new_expiry)
     try:
-        rotated = client.rotate_virtual_key(key_id)
-    except Exception:
-        # Undo the extend. For an expired key it made the OLD secret work again, so
-        # never leave it that way: put the original expiry back (a past date expires
-        # the key again) or, failing that, revoke.
-        if extend:
-            try:
-                if not old.get('expiresAt'):
-                    raise ConnectorError('no original expiry to restore')
-                client.update_virtual_key(key_id, expires_at=old['expiresAt'])
-            except Exception:
-                if expired:
-                    client.revoke_virtual_key(key_id, 'Renewal failed after the expiry was extended')
-        raise
-    return {'method': 'extended_and_rotated' if extend else 'rotated', 'key_id': key_id,
-            'old_status': status, 'old_expires_at': old.get('expiresAt'),
-            'expires_at': new_expiry or old.get('expiresAt'),
-            'new_secret': rotated.get('new_secret'), 'key': rotated}
+        renewed = _client(config).renew_virtual_key(ref, expires_in_days=days)
+    except ValueError as err:  # a revoked or suspended key, or days out of range
+        raise ConnectorError(str(err))
+    return {
+        'method': renewed.method,
+        'key_id': renewed.key_id,
+        'old_status': renewed.old_status,
+        'old_expires_at': getattr(renewed, 'old_expires_at', None),
+        'expires_at': renewed.expires_at,
+        'secretKey': renewed.secret,
+        'new_secret': renewed.secret,
+        'key': {k: v for k, v in renewed.record.items() if k != 'secretKey'},
+    }
 
 
 operations['renew_virtual_key'] = renew_virtual_key
 
 
 def revoke_virtual_key(config, params):
-    if not params.get('key_id'):
-        raise ValueError('key_id is required')
     return _client(config).revoke_virtual_key(
-        params['key_id'], _opt(params, 'reason') or 'Revoked from FortiSOAR')
+        _required(params, 'key_id'), _opt(params, 'reason') or 'Revoked from FortiSOAR')
 
 
 operations['revoke_virtual_key'] = revoke_virtual_key
 
 
 def check_key(config, params):
-    if not params.get('api_key'):
-        raise ValueError('api_key is required')
-    return _client(config).check_key(params['api_key'])
+    return _client(config).check_key(_required(params, 'api_key'))
 
 
 operations['check_key'] = check_key
 
 
+def list_policies(config, params):
+    return _client(config).policies(_opt(params, 'workspace_id'))
+
+
+operations['list_policies'] = list_policies
+
+
+def get_policy(config, params):
+    return _client(config).policy(_required(params, 'policy_id'))
+
+
+operations['get_policy'] = get_policy
+
+
+def list_guardrails(config, params):
+    return _client(config).guardrails()
+
+
+operations['list_guardrails'] = list_guardrails
+
+
+def get_guardrail(config, params):
+    return _client(config).guardrail(_required(params, 'guardrail_id'))
+
+
+operations['get_guardrail'] = get_guardrail
+
+
+def test_guardrail(config, params):
+    detector_ids = _ids_list(params.get('detector_ids'))
+    guardrail_id = _opt(params, 'guardrail_id')
+    if not detector_ids and not guardrail_id:
+        raise ValueError('detector_ids or guardrail_id is required')
+    return _client(config).test_guardrail(
+        _required(params, 'input_text'),
+        detector_ids or None,
+        guardrail_id=guardrail_id,
+        deny_suspicious_characters=bool(params.get('deny_suspicious_characters')),
+    )
+
+
+operations['test_guardrail'] = test_guardrail
+
+
+def list_ai_providers(config, params):
+    client = _client(config)
+    if not client.org_scope:
+        raise ConnectorError(
+            'Listing AI providers needs an organization administrator; {0} is a {1} login. '
+            'List Policies shows the providers your workspace may use.'.format(
+                config.get('username'), client.role))
+    return client.ai_providers()
+
+
+operations['list_ai_providers'] = list_ai_providers
+
+
+def get_workspace_budget(config, params):
+    client = _client(config)
+    workspace = _opt(params, 'workspace_id') or client.default_workspace()
+    if not workspace:
+        raise ValueError('workspace_id is required')
+    return client.workspace_budget(workspace)
+
+
+operations['get_workspace_budget'] = get_workspace_budget
+
+
+# - chat, models, audit -------------------------------------------------------------
+
+
 def _parse_messages(raw) -> list:
-    import json
-    from .connections import ConnectorError
     if isinstance(raw, (list, tuple)):
         return list(raw)
     if isinstance(raw, str):
@@ -361,93 +437,28 @@ def _parse_messages(raw) -> list:
 
 
 def chat_completion(config, params):
-    if not params.get('api_key') or not params.get('model'):
-        raise ValueError('api_key and model are required')
-    client = _client(config)
-    result = client.chat_completion(
-        api_key=params['api_key'],
-        model=params['model'],
-        messages=_parse_messages(params.get('messages')),
-        max_tokens=params.get('max_tokens') or None,
-        temperature=params.get('temperature'),
+    """One OpenAI-compatible chat completion through the gateway. The key's policies
+    and guardrails apply; a block comes back as a completion with finish_reason
+    content_filter, not as an error."""
+    api_key = _required(params, 'api_key')
+    model = _required(params, 'model')
+    return _client(config).chat_completion(
+        api_key,
+        model,
+        _parse_messages(params.get('messages')),
+        max_tokens=_opt(params, 'max_tokens'),
+        temperature=_opt(params, 'temperature'),
     )
-    return result
 
 
 operations['chat_completion'] = chat_completion
 
 
-def list_policies(config, params):
-    return _client(config).list_policies(workspace_id=_opt(params, 'workspace_id'))
-
-
-operations['list_policies'] = list_policies
-
-
-def get_policy(config, params):
-    if not params.get('policy_id'):
-        raise ValueError('policy_id is required')
-    return _client(config).get_policy(params['policy_id'])
-
-
-operations['get_policy'] = get_policy
-
-
-def list_guardrails(config, params):
-    return _client(config).list_guardrails()
-
-
-operations['list_guardrails'] = list_guardrails
-
-
-def get_guardrail(config, params):
-    if not params.get('guardrail_id'):
-        raise ValueError('guardrail_id is required')
-    return _client(config).get_guardrail(params['guardrail_id'])
-
-
-operations['get_guardrail'] = get_guardrail
-
-
-def test_guardrail(config, params):
-    if not params.get('input_text'):
-        raise ValueError('input_text is required')
-    detector_ids = _ids_list(params.get('detector_ids'))
-    return _client(config).test_guardrail(
-        input_text=params['input_text'],
-        detector_ids=detector_ids or None,
-        guardrail_id=_opt(params, 'guardrail_id'),
-        deny_suspicious_characters=bool(params.get('deny_suspicious_characters')),
-    )
-
-
-operations['test_guardrail'] = test_guardrail
-
-
-def list_ai_providers(config, params):
-    return _client(config).list_ai_providers()
-
-
-operations['list_ai_providers'] = list_ai_providers
-
-
-def get_workspace_budget(config, params):
-    client = _client(config)
-    workspace_id = _opt(params, 'workspace_id')
-    if not workspace_id:
-        if client.org_scope:
-            raise ValueError('workspace_id is required')
-        workspace_id = client.default_workspace()
-    return client.get_workspace_budget(workspace_id)
-
-
-operations['get_workspace_budget'] = get_workspace_budget
-
-
 def list_audit_logs(config, params):
-    return _client(config).list_audit_logs(
-        offset=params.get('offset') or 0,
-        limit=params.get('limit') or 25,
+    return _client(config).audit_logs_page(
+        _opt(params, 'cursor'),
+        range=_opt(params, 'range') or 'all',
+        limit=int(params.get('limit') or 25),
     )
 
 
@@ -544,71 +555,10 @@ operations['get_traffic_log'] = get_traffic_log
 
 
 def get_audit_log_filter_options(config, params):
-    return _client(config).get_audit_log_filter_options()
+    return _client(config).audit_log_filter_options()
 
 
 operations['get_audit_log_filter_options'] = get_audit_log_filter_options
-
-
-# - dropdown populators ("apiOperation" sources, visible: false) -----------
-# Update step UIs call these with the connector config only and render the
-# result as dropdown options: a plain list of strings (see resolve_names above).
-
-
-def get_workspace_options(config, params):
-    client = _client(config)
-    return _names(_workspace_rows(client))
-
-
-operations['get_workspace_options'] = get_workspace_options
-
-
-def get_virtual_key_options(config, params):
-    return _names(_key_rows(_client(config)))
-
-
-operations['get_virtual_key_options'] = get_virtual_key_options
-
-
-def get_policy_options(config, params):
-    return _names(_policy_rows(_client(config)))
-
-
-operations['get_policy_options'] = get_policy_options
-
-
-def get_guardrail_options(config, params):
-    return _names(_guardrail_rows(_client(config)))
-
-
-operations['get_guardrail_options'] = get_guardrail_options
-
-
-def get_detector_options(config, params):
-    return _names(_detector_rows(_client(config)))
-
-
-operations['get_detector_options'] = get_detector_options
-
-
-def get_model_options(config, params):
-    """Model names chat completions accept. The org model groups are the
-    modeled catalog; without membership to a group there are no options, so
-    fall back to empty (the user can still type a free-form model)."""
-    groups = _client(config).list_model_groups()
-    names = []
-    for g in groups:
-        names.extend(g.get('_models') or [])
-    seen = set()
-    ordered = []
-    for name in sorted(names):
-        if name not in seen:
-            seen.add(name)
-            ordered.append(name)
-    return ordered
-
-
-operations['get_model_options'] = get_model_options
 
 
 def execute_api_request(config, params):
@@ -620,13 +570,173 @@ def execute_api_request(config, params):
     method = (params.get('method') or 'GET').upper()
     if method not in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE'):
         raise ConnectorError('Method must be GET, POST, PUT, PATCH or DELETE')
-    return _client(config).raw(method, params.get('endpoint'),
-                               json_object(params.get('query_params'), 'Query Parameters'),
-                               json_object(params.get('request_body'), 'Request Body'))
+    return _client(config).request(
+        method,
+        _endpoint(params.get('endpoint')),
+        body=_json_object(params.get('request_body'), 'Request Body'),
+        params=_json_object(params.get('query_params'), 'Query Parameters'),
+    )
 
 
 operations['execute_api_request'] = execute_api_request
 
 
+# - blocked traffic (scheduled ingestion) ----------------------------------------------
+
+
+def _when(value, name) -> Optional[datetime]:
+    """A time as an aware UTC datetime: epoch milliseconds (an int or digits) or an
+    ISO-8601 datetime such as 2026-10-15T10:00:00Z (a naive one is taken as UTC)."""
+    if value in (None, '', 'null'):
+        return None
+    if isinstance(value, bool):
+        raise ValueError('{0} must be epoch milliseconds or an ISO datetime'.format(name))
+    if isinstance(value, (int, float)) or re.fullmatch(r'-?\d+', str(value).strip()):
+        return datetime.fromtimestamp(int(float(value)) / 1000, timezone.utc)
+    text = str(value).strip()
+    iso = text[:-1] + '+00:00' if text[-1:] in ('Z', 'z') else text
+    try:
+        parsed = datetime.fromisoformat(iso)
+    except ValueError:
+        raise ValueError('{0} must be epoch milliseconds or an ISO datetime such as '
+                         '2026-10-15T10:00:00Z, not {1!r}'.format(name, text))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def get_blocked_traffic(config, params):
+    """Requests FortiAIGate blocked, newest first: what was sent, the detectors that
+    fired and why, and the virtual key that sent it.
+
+    `since` (the last pull time) with an optional `until` (default now) is a custom
+    window. Without `since`, `range` (24h, 7d, month or all) counts back from now.
+    `max_items` caps the rows read; the cap keeps the newest, so a poller that
+    needs every row should run often enough that one window stays under it.
+    """
+    since = _when(params.get('since'), 'since')
+    until = _when(params.get('until'), 'until')
+    if until is not None and since is None:
+        raise ValueError('until needs since: a custom window runs from since to until; '
+                         'leave both blank to read the range instead')
+    if since is not None and until is not None and until <= since:
+        raise ValueError('until must be later than since')
+    max_items = int(params.get('max_items') or 100)
+    if max_items < 1:
+        raise ValueError('max_items must be at least 1')
+    records = _client(config).blocked_requests(
+        since=since,
+        until=until,
+        range=_opt(params, 'range') or '24h',
+        max_items=max_items,
+        ws_id=_opt(params, 'workspace_id'),
+    )
+    teams = _owner_teams(config)
+    for record in records:
+        record['ownerTeams'] = teams
+    return records
+
+
+def _owner_teams(config) -> list:
+    """The team IRIs that own this connector configuration, so the ingestion can make
+    the alerts theirs. Without owners an alert goes to the playbook's default team, which
+    a student on a Private configuration cannot read. Read in the connector, not the
+    playbook: the configuration API also returns the encrypted password, which would
+    land in the run log. Empty when the configuration is shared or the lookup fails."""
+    config_id = config.get('config_id')
+    if not config_id:
+        return []
+    try:
+        from integrations.crudhub import make_request
+        found = make_request('/api/integration/configuration/{0}/'.format(config_id), 'GET')
+    except Exception:  # noqa: BLE001 - ownership is a nicety; never fail the read on it
+        return []
+    teams = found.get('teams') if isinstance(found, dict) else None
+    return ['/api/3/teams/{0}'.format(str(t).rsplit('/', 1)[-1]) for t in teams or [] if t]
+
+
+operations['get_blocked_traffic'] = get_blocked_traffic
+
+
+# - dropdown populators ("apiOperation" sources, visible: false) -----------
+# Update step UIs call these with the connector config only and render the
+# result as dropdown options: a plain list of strings. The action then receives
+# the picked name, which the library resolves to the id.
+
+
+def get_workspace_options(config, params):
+    return _names(w.get('workspaceName') for w in _workspaces(_client(config)))
+
+
+operations['get_workspace_options'] = get_workspace_options
+
+
+def get_virtual_key_options(config, params):
+    return _names(k.get('keyName') for k in _client(config).virtual_keys())
+
+
+operations['get_virtual_key_options'] = get_virtual_key_options
+
+
+def get_policy_options(config, params):
+    return _names(p.get('name') for p in _client(config).policies())
+
+
+operations['get_policy_options'] = get_policy_options
+
+
+def get_guardrail_options(config, params):
+    return _names(g.get('name') for g in _client(config).guardrails())
+
+
+operations['get_guardrail_options'] = get_guardrail_options
+
+
+def get_detector_options(config, params):
+    client = _client(config)
+    return _names([d.get('name') for d in client.detectors()]
+                  + [d.get('name') for d in client.builtin_detectors()])
+
+
+operations['get_detector_options'] = get_detector_options
+
+
+def get_model_options(config, params):
+    """Model names chat completions accept: the members of the model groups the login
+    can use. Without membership to a group there are no options, so the list is
+    empty and the user can still type a model name."""
+    names = []
+    for group in _client(config).model_groups():
+        for member in group.get('members') or []:
+            model = (member or {}).get('model') or {}
+            name = model.get('publicName') or model.get('modelId')
+            if name:
+                names.append(str(name))
+    return sorted(set(names))
+
+
+operations['get_model_options'] = get_model_options
+
+
 def _check_health(config):
-    return _client(config).health()
+    """Log in and settle the scope. A workspace login must resolve its workspace now,
+    so a wrong Workspace name fails here rather than mid-playbook. A login in several
+    workspaces with none configured still passes, since each action can name one."""
+    client = _client(config)
+    try:
+        client.me()
+        if not client.org_scope:
+            mine = client.my_workspaces()
+            if not config.get('workspace') and len(mine) > 1:
+                # Nearly every action works in one workspace; without Workspace each would fail.
+                raise ConnectorError(
+                    '{0} is a member of {1} workspaces ({2}): set Workspace in the configuration.'.format(
+                        config.get('username'), len(mine),
+                        ', '.join(str(w.get('workspaceName')) for w in mine)))
+            ws = client.default_workspace()
+            role = next((w.get('membershipRole') for w in mine if str(w.get('id')) == ws), None)
+            if role in MEMBER_ROLES:
+                # Live-verified on 8.0.2: a workspace member gets 403 "Workspace administrator
+                # access required" on keys, guardrails, policies, detectors and traffic logs.
+                raise ConnectorError(member_message(config.get('username')))
+    except (ValueError, *API_ERRORS) as err:
+        raise ConnectorError(str(err))
+    return 'ok'
