@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Refuse a push whose playbooks.yaml and playbooks.json disagree.
+#
+# YAML is the source of truth; JSON is build output. CI recompiles on tag
+# push, so a stale JSON doesn't actually ship, but catching it here is cheaper
+# than discovering it when the release build renames the sample collection.
+#
+# Install:  git config core.hooksPath .githooks
+# Bypass:   git push --no-verify   (do not habituate)
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+yaml="$root/playbooks/playbooks.yaml"
+json="$root/playbooks/playbooks.json"
+[ -f "$yaml" ] || exit 0
+
+if ! command -v fsrpb >/dev/null 2>&1; then
+  echo "pre-push: fsrpb not on PATH; skipping YAML/JSON drift check" >&2
+  echo "          pip install git+https://github.com/ftnt-dspille/fsr-playbook-framework.git" >&2
+  exit 0
+fi
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+cp "$json" "$tmp/before.json"
+
+if ! python3 "$root/playbooks/build.py" >/dev/null; then
+  echo "pre-push: playbooks/build.py failed" >&2
+  exit 1
+fi
+
+if ! diff -q "$tmp/before.json" "$json" >/dev/null; then
+  cp "$tmp/before.json" "$json"
+  echo "pre-push: playbooks.json is stale vs playbooks.yaml" >&2
+  echo "          run: python playbooks/build.py && git add playbooks/playbooks.json" >&2
+  exit 1
+fi

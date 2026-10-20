@@ -26,21 +26,27 @@ jobs:
           fi
           echo "version=$info" >> "$GITHUB_ENV"
 
+      - name: Install fsrpb compiler
+        # YAML is the source of truth for humans; JSON is build output. CI
+        # installs the compiler and recompiles here so a contributor only ever
+        # has to edit playbooks.yaml - a missed local rebuild won't ship a
+        # stale collection name or stale step wiring.
+        run: pip install "fsrpb @ git+https://github.com/ftnt-dspille/fsr-playbook-framework.git"
+
+      - name: Compile playbooks.yaml -> playbooks.json
+        run: python playbooks/build.py
+
       - name: Compiled playbooks must match info.json version
-        # playbooks.json is generated from playbooks.yaml by playbooks/build.py,
-        # which needs the fsrpb compiler and so cannot run here. What CI can do
-        # is refuse a release whose committed playbooks were built against an
-        # older version - a forgotten rebuild ships a bundle whose sample
-        # collection is named for the previous release, and FortiSOAR deletes
-        # and re-imports that collection by name on upgrade.
+        # Belt-and-braces: build.py stamps the collection name from info.json,
+        # but if that logic ever regresses the release should still refuse.
         run: |
           python3 - <<'PY'
-          import json, os, re, sys
+          import json, re, sys
           version = json.load(open("info.json"))["version"]
           name = json.load(open("playbooks/playbooks.json"))["data"][0]["name"]
           if not re.search(rf"{re.escape(version)}$", name):
               sys.exit(f"::error::playbooks.json collection {name!r} "
-                       f"is not built for {version}; re-run playbooks/build.py")
+                       f"is not built for {version}")
           print(f"collection {name!r} matches {version}")
           PY
 
