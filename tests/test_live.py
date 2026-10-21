@@ -104,7 +104,7 @@ def test_live_create_rotate_revoke_disposable_key():
                     'console as a workspace member first)')
     name = 'fsr-connector-test-{0}'.format(uuid.uuid4().hex[:8])
     # HEAD route exercises grantable_providers auto-grant; add provider_ids coverage
-    # from master as a comment hint — explicit providers always win over auto-grant.
+    # from master as a comment hint - explicit providers always win over auto-grant.
     created = ops.create_virtual_key(config, {'workspace_id': mine[0]['id'], 'key_name': name})
     secret = created['secretKey']
     assert secret.startswith('faig_')
