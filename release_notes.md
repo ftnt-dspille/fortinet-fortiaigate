@@ -1,5 +1,24 @@
 # fortinet-fortiaigate release notes
 
+## 1.7.1
+
+Closes the gap between the 1.6.12/1.7.0 release notes and the shipped
+playbook:
+
+- The notes said the `faig_remediation_complete` dedup marker is written at
+  the end of both success paths. The shipped playbook only wrote it on the
+  no-peers path (`StampCompleteNoPeers`); the peer path went `RotatePeers` ->
+  `Revoked` without ever stamping. A replay of a successful
+  revocation-with-peers was therefore not deduped: it re-ran the whole
+  remediation and rotated the peers a second time.
+- A new `StampComplete` step after `RotatePeers` writes the same marker on the
+  peer path, so a replay with the same `request_id` short-circuits to
+  `already_processed` as documented. `ignore_errors` on the stamp keeps a
+  failed metadata write from masking a rotation that did finish.
+- The FreshBlock freshness window uses `arrow.utcnow().int_timestamp` (an
+  integer property) instead of the float `timestamp`, so the 15-minute
+  millisecond arithmetic is exact integer math.
+
 ## 1.7.0
 
 - Merges the 1.6.1 - 1.6.13 security hardening (URL-encode ids, Vault path checks,

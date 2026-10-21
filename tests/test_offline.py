@@ -87,11 +87,26 @@ def test_every_operation_is_dispatched_and_listed_in_info_json():
 
 def test_scheduled_ingestion_is_declared():
     info = json.loads((REPO / 'info.json').read_text())
-    assert info['version'] == '1.7.0'
     assert info['ingestion_supported'] is True
     assert info['ingestion_modes'] == ['scheduled']
     assert info['ingestion_preferences'] == {'modules': ['alerts']}
     assert 'blocked' in info['description']
+
+
+def test_version_and_release_notes_agree():
+    # No hard version pin: a pin is churn on every release and trains
+    # reflexive edits of the expected number. What IS worth asserting is
+    # coherence -- the version info.json declares must be the one the
+    # release notes describe, in both directions.
+    import re
+    info = json.loads((REPO / 'info.json').read_text())
+    notes = (REPO / 'release_notes.md').read_text()
+    version = info['version']
+    assert re.search(rf'^## {re.escape(version)}\b', notes, re.M), \
+        f"info.json declares {version} but release_notes.md has no '## {version}' section"
+    newest = re.search(r'^## (\S+)', notes, re.M)
+    assert newest and newest.group(1) == version, \
+        f"release_notes.md's newest section is {newest.group(1) if newest else 'none'}, info.json is {version}"
 
 
 def test_the_library_is_the_only_http_dependency():

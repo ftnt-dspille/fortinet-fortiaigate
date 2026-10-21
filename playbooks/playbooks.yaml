@@ -562,7 +562,7 @@ playbooks:
           otherwise reuse any past block to revoke an arbitrary key later.
         conditions:
           - display: Fresh block in the traffic logs for this key_id - proceed
-            when: "{{ (vars.steps.VerifyBlock.data.keyId | default('')) == vars.key_id and ((vars.steps.VerifyBlock.data.verdict | default('') | string | lower) == 'block' or (vars.steps.VerifyBlock.data.action | default('') | string | lower) == 'block') and (vars.steps.VerifyBlock.data.timeStamp | default(0, true) | int) >= ((arrow.utcnow().timestamp * 1000) | int - 900000) }}"
+            when: "{{ (vars.steps.VerifyBlock.data.keyId | default('')) == vars.key_id and ((vars.steps.VerifyBlock.data.verdict | default('') | string | lower) == 'block' or (vars.steps.VerifyBlock.data.action | default('') | string | lower) == 'block') and (vars.steps.VerifyBlock.data.timeStamp | default(0, true) | int) >= ((arrow.utcnow().int_timestamp * 1000) | int - 900000) }}"
             next: FindBadSecret
           - display: No matching fresh block - refuse (missing, old, or wrong key)
             default: true
@@ -810,7 +810,7 @@ playbooks:
 
       - name: RotatePeers
         type: workflow_reference
-        next: Revoked
+        next: StampComplete
         comment: >-
           One child run per peer. apply_async=false so the summary step
           sees the children's set_variable outputs.
@@ -825,6 +825,18 @@ playbooks:
         apply_async: false
         pass_parent_env: false
         pass_input_record: false
+
+      - name: StampComplete
+        type: connector
+        next: Revoked
+        connector: hashicorp-vault-kv
+        operation: patch_metadata
+        config: ''
+        ignore_errors: true
+        comment: Dedup marker on the bad secret so a replay with the same request_id short-circuits.
+        params:
+          path: '{{ vars.steps.FindBadSecret.data.matches[0].path }}'
+          custom_metadata: '{{ {"faig_remediation_complete": vars.request_id} | tojson }}'
 
       - name: Revoked
         type: set_variable
