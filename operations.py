@@ -198,7 +198,7 @@ def list_expiring_virtual_keys(config, params):
     now = datetime.now(timezone.utc)
     horizon = now + timedelta(days=within)
     keys = []
-    for record in _client(config).list_virtual_keys(workspace_id=_opt(params, 'workspace_id')):
+    for record in _client(config).virtual_keys(_opt(params, 'workspace_id')):
         expires = _parse_time(record.get('expiresAt'))
         status = record.get('status')
         if expires is None or status not in ('active', 'expired') or expires > horizon:
@@ -499,7 +499,7 @@ def get_traffic_log(config, params):
     if alias:
         # list ALL keys the login can see, then filter by alias. Narrow by workspace only
         # when the key record carries one that matches; records without a workspace field are
-        # kept (older FAIG shapes). ws from the log is a name, which connections.list_virtual_keys
+        # kept (older FAIG shapes). ws from the log is a name, which virtual_keys
         # does not resolve.
         # Fail CLOSED: require that the log's keyPrefix matches the key record's keyPreview
         # whenever the log carries a prefix (same-named keys share the alias; prefix uniquely
@@ -511,7 +511,7 @@ def get_traffic_log(config, params):
             if isinstance(wk, dict):
                 return wk.get('name') == ws or wk.get('id') == ws
             return wk == ws
-        candidates = [k for k in client.list_virtual_keys()
+        candidates = [k for k in client.virtual_keys()
                       if str(k.get('keyName') or '') == alias and _ws_matches(k)]
         if prefix:
             candidates = [k for k in candidates if str(k.get('keyPreview') or '') == prefix]

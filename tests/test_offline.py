@@ -774,3 +774,28 @@ def test_a_bad_secret_is_never_echoed_in_the_error(fake, config):
     with pytest.raises(Exception) as err:
         run(config, 'rotate_virtual_key', {'api_key': secret})
     assert secret not in str(err.value)
+
+
+def test_operations_only_call_library_methods_that_exist():
+    # The 1.7.x unification renamed client methods (list_virtual_keys ->
+    # virtual_keys); a stale call site survived the merge and only blew up
+    # on a live box, mid-remediation. Parse operations.py for attribute
+    # calls on the client object and require every one to exist on the
+    # real FortiAIGate class -- offline, before any release can ship it.
+    import ast
+    import pyfortiaigate
+
+    tree = ast.parse((REPO / 'operations.py').read_text())
+    receivers = {'client', '_client'}
+    called = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            recv = node.func.value
+            if isinstance(recv, ast.Name) and recv.id in receivers:
+                called.add(node.func.attr)
+            elif isinstance(recv, ast.Call) and isinstance(recv.func, ast.Name) \
+                    and recv.func.id == '_client':
+                called.add(node.func.attr)
+    assert called, 'no client calls found -- the parser contract broke'
+    missing = sorted(m for m in called if not hasattr(pyfortiaigate.FortiAIGate, m))
+    assert not missing, f"operations.py calls methods the client does not have: {missing}"
